@@ -12,7 +12,7 @@ mode switching, repeatable installation, and end-to-end verification.
 - [x] Add and test the idempotent installer.
 - [x] Document the authentication and operating workflow.
 - [x] Install locally and verify real headed/headless tunnel behavior.
-- [ ] Create the private GitHub repository and push the verified default branch.
+- [x] Create the private GitHub repository and push the verified default branch.
 
 Detailed execution steps are in
 `docs/superpowers/plans/2026-07-26-playwright-headed-mode.md`.
