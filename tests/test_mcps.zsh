@@ -9,7 +9,7 @@ test_command_generation() {
 
   run_alias mcp-playwright-head >/dev/null
   local headed
-  headed=$(last_invocation)
+  headed=$(last_invocation 1)
   assert_contains "$headed" "@playwright/mcp@latest" "headed mode launches Playwright MCP"
   assert_contains "$headed" "--user-data-dir=$TEST_SANDBOX/.playwright-spotify" "headed mode uses persistent profile"
   assert_not_contains "$headed" "--headless" "headed mode must show a browser"
@@ -17,14 +17,14 @@ test_command_generation() {
 
   run_alias mcp-playwright-headless >/dev/null
   local headless
-  headless=$(last_invocation)
+  headless=$(last_invocation 2)
   assert_contains "$headless" "--headless" "headless alias selects headless mode"
   assert_contains "$headless" "--user-data-dir=$TEST_SANDBOX/.playwright-spotify" "headless mode shares persistent profile"
   run_launcher stop playwright >/dev/null
 
   run_alias mcp-playwright >/dev/null
   local legacy
-  legacy=$(last_invocation)
+  legacy=$(last_invocation 3)
   assert_eq "$legacy" "$headless" "legacy alias remains equivalent to headless mode"
 
   cleanup_sandbox
@@ -76,7 +76,7 @@ test_menu_chrome_and_errors() {
   assert_eq "$(fake_start_count)" "0" "bare menu starts nothing"
 
   run_alias mcp-chrome >/dev/null
-  assert_contains "$(last_invocation)" "--profile chrome-browser-mcp" "Chrome alias preserves its tunnel profile"
+  assert_contains "$(last_invocation 1)" "--profile chrome-browser-mcp" "Chrome alias preserves its tunnel profile"
   assert_contains "$(run_launcher status)" "Chrome MCP: running" "status reports Chrome"
   run_launcher stop chrome >/dev/null
 
@@ -84,7 +84,7 @@ test_menu_chrome_and_errors() {
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "both starts Chrome"
-  assert_contains "$(last_invocation)" "--headless" "both selects background Playwright mode"
+  assert_contains "$(last_invocation 3)" "--headless" "both selects background Playwright mode"
   [[ -f "$TEST_SANDBOX/state/chrome.log" ]] || fail "Chrome log was not created"
   [[ -f "$TEST_SANDBOX/state/playwright.log" ]] || fail "Playwright log was not created"
 

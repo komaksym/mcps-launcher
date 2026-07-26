@@ -11,7 +11,7 @@ mode switching, repeatable installation, and end-to-end verification.
 - [x] Build the launcher lifecycle through failing shell tests.
 - [x] Add and test the idempotent installer.
 - [x] Document the authentication and operating workflow.
-- [ ] Install locally and verify real headed/headless tunnel behavior.
+- [x] Install locally and verify real headed/headless tunnel behavior.
 - [ ] Create the private GitHub repository and push the verified default branch.
 
 Detailed execution steps are in

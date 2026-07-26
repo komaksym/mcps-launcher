@@ -74,7 +74,18 @@ run_alias() {
 }
 
 last_invocation() {
-  tail -n 1 "$FAKE_TUNNEL_LOG" 2>/dev/null
+  local expected=${1:-1} i count
+  for i in {1..60}; do
+    if [[ -s $FAKE_TUNNEL_LOG ]]; then
+      count=$(wc -l < "$FAKE_TUNNEL_LOG" | tr -d ' ')
+      if (( count >= expected )); then
+        tail -n 1 "$FAKE_TUNNEL_LOG"
+        return
+      fi
+    fi
+    sleep 0.05
+  done
+  return 1
 }
 
 fake_start_count() {
