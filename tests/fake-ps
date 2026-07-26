@@ -1,0 +1,17 @@
+#!/bin/zsh
+
+set -u
+
+typeset pid=""
+while (( $# > 0 )); do
+  case $1 in
+    -p)
+      shift
+      pid=${1:-}
+      ;;
+  esac
+  shift
+done
+
+[[ $pid == <-> && -f "${FAKE_PROCESS_DIR:?}/$pid.command" ]] || exit 1
+< "$FAKE_PROCESS_DIR/$pid.command"

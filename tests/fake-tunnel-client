@@ -1,0 +1,31 @@
+#!/bin/zsh
+
+set -u
+
+print -r -- "${(j: :)@}" >> "${FAKE_TUNNEL_LOG:?}"
+mkdir -p "${FAKE_PROCESS_DIR:?}"
+print -r -- "$0 ${(j: :)@}" > "$FAKE_PROCESS_DIR/$$.command"
+
+typeset pid_file="" health_file=""
+typeset -i i=1
+while (( i <= $# )); do
+  case ${@[i]} in
+    --pid.file)
+      (( i++ ))
+      pid_file=${@[i]}
+      ;;
+    --health.url-file)
+      (( i++ ))
+      health_file=${@[i]}
+      ;;
+  esac
+  (( i++ ))
+done
+
+[[ -n $pid_file ]] && print -r -- "$$" > "$pid_file"
+[[ -n $health_file ]] && print -r -- "http://127.0.0.1:54321" > "$health_file"
+
+trap 'rm -f "$FAKE_PROCESS_DIR/$$.command"; exit 0' TERM INT
+while true; do
+  sleep 1
+done
