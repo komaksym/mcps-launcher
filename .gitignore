@@ -9,7 +9,6 @@ playwright.mode
 # Local credentials and machine-specific auth/config
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 *.p12
