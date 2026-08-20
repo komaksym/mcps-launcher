@@ -52,7 +52,7 @@ if git grep -n -I -i -E \
   -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
   -e 'AIza[0-9A-Za-z_-]{35}' \
   -e '(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret)[[:space:]]*[:=][[:space:]]*[^$<{[:space:]]{8,}' \
-  -- . ':(exclude)scripts/check.zsh'; then
+  -- .; then
   print -u2 -r -- "Potential credential material found"
   exit 1
 fi
