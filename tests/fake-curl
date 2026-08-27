@@ -1,0 +1,5 @@
+#!/bin/zsh
+
+set -u
+
+[[ ${FAKE_HEALTH_STATUS:-failure} == success ]]

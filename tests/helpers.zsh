@@ -33,9 +33,11 @@ setup_sandbox() {
   cp "$TEST_ROOT/tests/fake-tunnel-client" "$TEST_SANDBOX/bin/tunnel-client"
   cp "$TEST_ROOT/tests/fake-ps" "$TEST_SANDBOX/bin/ps"
   cp "$TEST_ROOT/tests/fake-skills-server" "$TEST_SANDBOX/bin/skills-server"
+  cp "$TEST_ROOT/tests/fake-curl" "$TEST_SANDBOX/bin/curl"
   chmod +x "$TEST_SANDBOX/bin/tunnel-client"
   chmod +x "$TEST_SANDBOX/bin/ps"
   chmod +x "$TEST_SANDBOX/bin/skills-server"
+  chmod +x "$TEST_SANDBOX/bin/curl"
   ln -s "$TEST_ROOT/bin/mcps" "$TEST_SANDBOX/bin/mcps"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright"
@@ -49,15 +51,19 @@ setup_sandbox() {
   export MCP_LAUNCHER_PS_BIN="$TEST_SANDBOX/bin/ps"
   export MCP_LAUNCHER_STARTUP_WAIT=0.5
   export MCP_LAUNCHER_SKIP_CHROME_OPEN=1
-  export MCP_LAUNCHER_SKIP_SKILLS_HEALTH=1
   export PLAYWRIGHT_MCP_USER_DATA_DIR="$TEST_SANDBOX/.playwright-spotify"
   export SKILLS_MCP_NODE_BIN="$TEST_SANDBOX/bin/skills-server"
   export SKILLS_MCP_SERVER_ENTRY="$TEST_SANDBOX/skills/dist/main.js"
   export SKILLS_MCP_PORT=2092
+  export MCP_LAUNCHER_SKILLS_HEALTH_BIN="$TEST_SANDBOX/bin/curl"
+  export MCP_LAUNCHER_SKILLS_HEALTH_ATTEMPTS=1
   export MCP_LAUNCHER_LOG_FOLLOW=0
   export FAKE_TUNNEL_LOG="$TEST_SANDBOX/tunnel-args.log"
   export FAKE_SKILLS_LOG="$TEST_SANDBOX/skills-args.log"
   export FAKE_PROCESS_DIR="$TEST_SANDBOX/processes"
+  export FAKE_HEALTH_STATUS=success
+  export FAKE_TUNNEL_EXIT=0
+  export FAKE_SKILLS_SERVER_EXIT=0
   mkdir -p "$FAKE_PROCESS_DIR" "$TEST_SANDBOX/skills/dist"
   touch "$SKILLS_MCP_SERVER_ENTRY"
 }

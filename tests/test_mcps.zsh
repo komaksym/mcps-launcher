@@ -104,6 +104,7 @@ test_menu_chrome_and_errors() {
   trap - EXIT
 }
 
+# Verifies every successful Skills command through the public launcher seam.
 test_skills_lifecycle() {
   setup_sandbox
   trap cleanup_sandbox EXIT
@@ -147,11 +148,12 @@ test_skills_lifecycle() {
   trap - EXIT
 }
 
+# Verifies combined startup adds Skills without removing existing services.
 test_skills_combined_startup() {
   setup_sandbox
   trap cleanup_sandbox EXIT
 
-  run_launcher both >/dev/null
+  run_launcher all >/dev/null
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "combined startup preserves Chrome"
@@ -166,18 +168,89 @@ test_skills_combined_startup() {
   trap - EXIT
 }
 
+# Verifies failed and partial Skills starts roll back only managed processes.
+test_skills_failures() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  export FAKE_SKILLS_SERVER_EXIT=1
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "server launch failure exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "server launch failure does not start a tunnel"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "server launch failure leaves a PID file"
+
+  export FAKE_SKILLS_SERVER_EXIT=0
+  export FAKE_HEALTH_STATUS=failure
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "health failure exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "health failure does not start a tunnel"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "health failure leaves the server running"
+
+  export FAKE_HEALTH_STATUS=success
+  export FAKE_TUNNEL_EXIT=1
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "tunnel launch failure exits non-zero"
+  [[ ! -e "$TEST_SANDBOX/state/skills.pid" ]] || fail "tunnel launch failure leaves a tunnel PID"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "tunnel launch failure leaves the server running"
+
+  export FAKE_TUNNEL_EXIT=0
+  run_launcher skills >/dev/null
+  local tunnel_pid
+  tunnel_pid=$(< "$TEST_SANDBOX/state/skills.pid")
+  kill -TERM "$tunnel_pid" 2>/dev/null || true
+  local i
+  for i in {1..20}; do
+    kill -0 "$tunnel_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "partial lifecycle is cleaned up"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "partial cleanup leaves the server running"
+
+  run_launcher skills >/dev/null
+  local server_pid
+  server_pid=$(< "$TEST_SANDBOX/state/skills-server.pid")
+  kill -TERM "$server_pid" 2>/dev/null || true
+  for i in {1..20}; do
+    kill -0 "$server_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "server-only failure cleans up its tunnel"
+  [[ ! -e "$TEST_SANDBOX/state/skills.pid" ]] || fail "server-only failure leaves the tunnel running"
+
+  sleep 30 &
+  local unrelated=$!
+  print -r -- "editor $SKILLS_MCP_SERVER_ENTRY" > "$FAKE_PROCESS_DIR/$unrelated.command"
+  print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills-server.pid"
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "entry-only process match is rejected"
+  kill -0 "$unrelated" 2>/dev/null || fail "entry-only stale cleanup killed an unrelated process"
+  kill -TERM "$unrelated" 2>/dev/null || true
+
+  sleep 30 &
+  unrelated=$!
+  print -r -- "tunnel-client run --profile playwright" > "$FAKE_PROCESS_DIR/$unrelated.command"
+  print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills.pid"
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "wrong-profile tunnel PID is stale"
+  kill -0 "$unrelated" 2>/dev/null || fail "stale tunnel cleanup killed an unrelated process"
+  kill -TERM "$unrelated" 2>/dev/null || true
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 case ${1:-all} in
   command_generation) test_command_generation ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
   skills_lifecycle) test_skills_lifecycle ;;
   skills_combined_startup) test_skills_combined_startup ;;
+  skills_failures) test_skills_failures ;;
   all)
     test_command_generation
     test_lifecycle
     test_menu_chrome_and_errors
     test_skills_lifecycle
     test_skills_combined_startup
+    test_skills_failures
     ;;
   *) print -u2 -r -- "Unknown test group: $1"; exit 2 ;;
 esac

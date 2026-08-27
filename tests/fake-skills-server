@@ -5,6 +5,7 @@ set -u
 print -r -- "${(j: :)@} PORT=${PORT:-}" >> "${FAKE_SKILLS_LOG:?}"
 mkdir -p "${FAKE_PROCESS_DIR:?}"
 print -r -- "$0 ${(j: :)@}" > "$FAKE_PROCESS_DIR/$$.command"
+[[ ${FAKE_SKILLS_SERVER_EXIT:-0} == 1 ]] && exit 1
 
 trap 'rm -f "$FAKE_PROCESS_DIR/$$.command"; exit 0' TERM INT
 while true; do
