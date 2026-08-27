@@ -1,8 +1,9 @@
 # MCPs Launcher
 
-A small macOS/zsh launcher for the existing Chrome and Playwright MCP tunnels.
-It adds explicit visible and background Playwright modes while preserving the
-same persistent browser profile between them.
+A small macOS/zsh launcher for Chrome, Playwright, and ChatGPT Skills MCP
+tunnels. It adds explicit visible and background Playwright modes while
+preserving the same persistent browser profile between them, and manages the
+Skills loopback server together with its tunnel.
 
 ## Why two Playwright modes?
 
@@ -29,8 +30,10 @@ repository.
 - `tunnel-client` installed at `/usr/local/bin/tunnel-client`, or
   `TUNNEL_CLIENT_BIN` pointing to it
 - existing tunnel-client profiles named `chrome-browser-mcp` and `playwright`
+- a dedicated tunnel-client profile named `chatgpt-chat-skills-mcp`
 - Node.js with `npx` available to tunnel-client
 - the Chrome Browser MCP extension/native bridge for Chrome commands
+- a built checkout of `chatgpt-chat-skills-mcp` (Node.js 20 or newer)
 
 ## Install
 
@@ -76,20 +79,24 @@ mcp-chrome                   # Chrome MCP only
 mcp-playwright-head          # Playwright with a visible browser
 mcp-playwright-headless      # Playwright in the background
 mcp-playwright               # backward-compatible headless alias
-mcps both                    # Chrome + headless Playwright
+mcp-skills                   # Skills loopback server + tunnel
+mcps both                    # Chrome + headless Playwright + Skills
 
 mcps status
 mcps stop chrome
 mcps stop playwright
+mcps stop skills
 mcps stop both
 
 mcps restart chrome
 mcps restart playwright-head
 mcps restart playwright-headless
+mcps restart skills
 mcps restart both
 
 mcps logs chrome
 mcps logs playwright
+mcps logs skills
 ```
 
 Status distinguishes the active Playwright mode:
@@ -97,15 +104,47 @@ Status distinguishes the active Playwright mode:
 ```text
 Chrome MCP: stopped
 Playwright MCP: running (headed, PID 12345)
+Skills MCP: running (server PID 12346, tunnel PID 12347)
 ```
+
+## Configure Skills MCP
+
+Build the Skills service first:
+
+```zsh
+cd /path/to/chatgpt-chat-skills-mcp
+npm install
+npm run build
+```
+
+The launcher defaults to
+`$HOME/.local/share/chatgpt-chat-skills-mcp/dist/main.js`. Either place or link
+the checkout there, or set `SKILLS_MCP_SERVER_ENTRY` to the absolute built
+entry point. `SKILLS_MCP_NODE_BIN` can select a specific Node.js executable,
+and `SKILLS_MCP_PORT` overrides the loopback port `2092`.
+
+Create the dedicated machine-local profile with the tunnel ID from the OpenAI
+tunnel settings. Keep the runtime API key in your local environment; do not put
+it in this repository or shell history.
+
+```zsh
+tunnel-client init \
+  --profile chatgpt-chat-skills-mcp \
+  --tunnel-id '<tunnel-id>' \
+  --mcp-server-url http://127.0.0.1:2092/mcp
+```
+
+The launcher supplies the loopback MCP URL at runtime and removes an ambient
+`CONTROL_PLANE_TUNNEL_ID` override, so the selected profile remains the source
+of tunnel identity. It never prints profile contents or credentials.
 
 ## Runtime files
 
 The launcher stores operator state under
 `$HOME/.local/state/mcp-launcher/`:
 
-- `chrome.pid` and `playwright.pid`
-- `chrome.log` and `playwright.log`
+- `chrome.pid`, `playwright.pid`, `skills.pid`, and `skills-server.pid`
+- `chrome.log`, `playwright.log`, `skills.log`, and `skills-server.log`
 - per-process health URL files
 - `playwright.mode`
 

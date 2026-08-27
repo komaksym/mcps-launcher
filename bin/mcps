@@ -10,11 +10,20 @@ readonly TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-/usr/local/bin/tunnel-client}"
 readonly PS_BIN="${MCP_LAUNCHER_PS_BIN:-/bin/ps}"
 readonly STARTUP_WAIT="${MCP_LAUNCHER_STARTUP_WAIT:-1}"
 readonly PLAYWRIGHT_USER_DATA_DIR="${PLAYWRIGHT_MCP_USER_DATA_DIR:-$HOME/.playwright-spotify}"
+readonly SKILLS_NODE_BIN="${SKILLS_MCP_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
+readonly SKILLS_SERVER_ENTRY="${SKILLS_MCP_SERVER_ENTRY:-$HOME/.local/share/chatgpt-chat-skills-mcp/dist/main.js}"
+readonly SKILLS_PORT="${SKILLS_MCP_PORT:-2092}"
+readonly SKILLS_PROFILE="chatgpt-chat-skills-mcp"
 
 mkdir -p "$STATE_DIR" || exit 1
 
 label() {
-  [[ $1 == chrome ]] && print -r -- "Chrome MCP" || print -r -- "Playwright MCP"
+  case $1 in
+    chrome) print -r -- "Chrome MCP" ;;
+    playwright) print -r -- "Playwright MCP" ;;
+    skills) print -r -- "Skills MCP" ;;
+    skills-server) print -r -- "Skills MCP server" ;;
+  esac
 }
 
 pid_file() { print -r -- "$STATE_DIR/$1.pid"; }
@@ -35,7 +44,15 @@ process_matches() {
   local kind=$1 pid=$2 command expected
   kill -0 "$pid" 2>/dev/null || return 1
   command=$("$PS_BIN" -p "$pid" -o command= 2>/dev/null) || return 1
-  expected=$([[ $kind == chrome ]] && print chrome-browser-mcp || print playwright)
+  case $kind in
+    chrome) expected=chrome-browser-mcp ;;
+    playwright) expected=playwright ;;
+    skills) expected=$SKILLS_PROFILE ;;
+    skills-server)
+      [[ $command == *"$SKILLS_SERVER_ENTRY"* ]]
+      return
+      ;;
+  esac
   [[ $command == *tunnel-client* && $command == *"$expected"* ]]
 }
 
@@ -45,6 +62,7 @@ running_pid() {
   if ! pid=$(read_pid "$kind") || ! process_matches "$kind" "$pid"; then
     [[ -f $file ]] && rm -f "$file"
     [[ $kind == playwright ]] && rm -f "$(mode_file)"
+    [[ $kind == skills-server ]] && rm -f "$(health_file skills-server)"
     return 1
   fi
   print -r -- "$pid"
@@ -67,6 +85,18 @@ playwright_command() {
   else
     print -r -- "npx -y @playwright/mcp@latest --user-data-dir=$quoted_dir"
   fi
+}
+
+# Waits until the loopback-only Skills health endpoint accepts requests.
+ensure_skills_server() {
+  [[ ${MCP_LAUNCHER_SKIP_SKILLS_HEALTH:-0} == 1 ]] && return 0
+  local i url="http://127.0.0.1:$SKILLS_PORT/healthz"
+  for i in {1..20}; do
+    curl --fail --silent --show-error "$url" >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  print -u2 -r -- "Skills MCP local server is not ready at $url."
+  return 1
 }
 
 ensure_chrome_server() {
@@ -180,6 +210,97 @@ start_playwright() {
   return 1
 }
 
+# Starts the built loopback Skills server and records only local runtime state.
+start_skills_server() {
+  local pid pfile logfile hfile child
+  if pid=$(running_pid skills-server); then
+    return 0
+  fi
+  [[ -n $SKILLS_NODE_BIN && -x $SKILLS_NODE_BIN ]] || {
+    print -u2 -r -- "Skills MCP Node.js executable not found. Set SKILLS_MCP_NODE_BIN."
+    return 1
+  }
+  [[ -f $SKILLS_SERVER_ENTRY ]] || {
+    print -u2 -r -- "Skills MCP build not found: $SKILLS_SERVER_ENTRY"
+    return 1
+  }
+
+  pfile=$(pid_file skills-server)
+  logfile=$(log_file skills-server)
+  hfile=$(health_file skills-server)
+  : >> "$logfile"
+  rm -f "$pfile" "$hfile"
+
+  nohup env PORT="$SKILLS_PORT" "$SKILLS_NODE_BIN" "$SKILLS_SERVER_ENTRY" \
+    </dev/null >>"$logfile" 2>&1 &
+  child=$!
+  print -r -- "$child" > "$pfile"
+  sleep "$STARTUP_WAIT"
+
+  if pid=$(running_pid skills-server); then
+    if ! ensure_skills_server; then
+      stop_kind skills-server >/dev/null
+      return 1
+    fi
+    print -r -- "http://127.0.0.1:$SKILLS_PORT/healthz" > "$hfile"
+    return 0
+  fi
+  rm -f "$pfile" "$hfile"
+  print -u2 -r -- "Skills MCP server failed to start. See $logfile"
+  tail -n 10 "$logfile" >&2 2>/dev/null || true
+  return 1
+}
+
+# Starts the dedicated tunnel only after the Skills loopback server is alive.
+start_skills() {
+  local tunnel_pid server_pid pfile logfile hfile child
+  if tunnel_pid=$(running_pid skills) && server_pid=$(running_pid skills-server); then
+    print -r -- "Skills MCP is already running (server PID $server_pid, tunnel PID $tunnel_pid)."
+    return 0
+  fi
+  stop_kind skills >/dev/null
+  stop_kind skills-server >/dev/null
+  [[ -x $TUNNEL_BIN ]] || {
+    print -u2 -r -- "tunnel-client not executable: $TUNNEL_BIN"
+    return 1
+  }
+  start_skills_server || return 1
+  server_pid=$(running_pid skills-server) || return 1
+
+  pfile=$(pid_file skills)
+  logfile=$(log_file skills)
+  hfile=$(health_file skills)
+  : >> "$logfile"
+  rm -f "$pfile" "$hfile"
+
+  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run \
+    --profile "$SKILLS_PROFILE" \
+    --profile-dir "$PROFILE_DIR" \
+    --mcp.server-url "url=http://127.0.0.1:$SKILLS_PORT/mcp,channel=main" \
+    --pid.file "$pfile" \
+    --log.file "$logfile" \
+    --health.listen-addr "127.0.0.1:0" \
+    --health.url-file "$hfile" \
+    </dev/null >/dev/null 2>&1 &
+  child=$!
+  sleep "$STARTUP_WAIT"
+
+  if tunnel_pid=$(running_pid skills); then
+    print -r -- "Skills MCP started (server PID $server_pid, tunnel PID $tunnel_pid)."
+    return 0
+  fi
+  if kill -0 "$child" 2>/dev/null; then
+    print -r -- "$child" > "$pfile"
+    print -r -- "Skills MCP started (server PID $server_pid, tunnel PID $child)."
+    return 0
+  fi
+  rm -f "$pfile" "$hfile"
+  stop_kind skills-server >/dev/null
+  print -u2 -r -- "Skills MCP tunnel failed to start. See $logfile"
+  tail -n 10 "$logfile" >&2 2>/dev/null || true
+  return 1
+}
+
 stop_kind() {
   local kind=$1 pid i name
   name=$(label "$kind")
@@ -224,27 +345,46 @@ status_playwright() {
   fi
 }
 
+# Reports Skills as running only when both managed processes still match.
+status_skills() {
+  local tunnel_pid server_pid
+  if tunnel_pid=$(running_pid skills) && server_pid=$(running_pid skills-server); then
+    print -r -- "Skills MCP: running (server PID $server_pid, tunnel PID $tunnel_pid)"
+  else
+    stop_kind skills >/dev/null
+    stop_kind skills-server >/dev/null
+    print -r -- "Skills MCP: stopped"
+  fi
+}
+
 show_status() {
   status_chrome
   status_playwright
+  status_skills
 }
 
 start_both() {
   start_chrome
   local chrome_status=$?
   start_playwright headless
-  return $(( chrome_status || $? ))
+  local playwright_status=$?
+  start_skills
+  local skills_status=$?
+  return $(( chrome_status || playwright_status || skills_status ))
 }
 
 stop_target() {
   case $1 in
     chrome|playwright) stop_kind "$1" ;;
+    skills) stop_kind skills && stop_kind skills-server ;;
     both)
       stop_kind chrome
       stop_kind playwright
+      stop_kind skills
+      stop_kind skills-server
       ;;
     *)
-      print -u2 -r -- "Usage: mcps stop {chrome|playwright|both}"
+      print -u2 -r -- "Usage: mcps stop {chrome|playwright|skills|both}"
       return 2
       ;;
   esac
@@ -255,9 +395,10 @@ restart_target() {
     chrome) stop_kind chrome && start_chrome ;;
     playwright|playwright-headless) stop_kind playwright && start_playwright headless ;;
     playwright-head) stop_kind playwright && start_playwright headed ;;
+    skills) stop_target skills && start_skills ;;
     both) stop_target both && start_both ;;
     *)
-      print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|both}"
+      print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|skills|both}"
       return 2
       ;;
   esac
@@ -265,13 +406,24 @@ restart_target() {
 
 show_logs() {
   local kind=$1 file
-  [[ $kind == chrome || $kind == playwright ]] || {
-    print -u2 -r -- "Usage: mcps logs {chrome|playwright}"
+  [[ $kind == chrome || $kind == playwright || $kind == skills ]] || {
+    print -u2 -r -- "Usage: mcps logs {chrome|playwright|skills}"
     return 2
   }
   file=$(log_file "$kind")
   touch "$file"
-  tail -n 50 -f "$file"
+  if [[ $kind == skills ]]; then
+    touch "$(log_file skills-server)"
+    if [[ ${MCP_LAUNCHER_LOG_FOLLOW:-1} == 1 ]]; then
+      tail -n 50 -f "$(log_file skills-server)" "$file"
+    else
+      tail -n 50 "$(log_file skills-server)" "$file"
+    fi
+  elif [[ ${MCP_LAUNCHER_LOG_FOLLOW:-1} == 1 ]]; then
+    tail -n 50 -f "$file"
+  else
+    tail -n 50 "$file"
+  fi
 }
 
 menu() {
@@ -280,13 +432,15 @@ menu() {
     print -r -- "1) Start Chrome MCP"
     print -r -- "2) Start Playwright MCP (headed)"
     print -r -- "3) Start Playwright MCP (headless)"
-    print -r -- "4) Start Chrome + headless Playwright"
+    print -r -- "4) Start Chrome + headless Playwright + Skills"
     print -r -- "5) Show status"
     print -r -- "6) Stop Chrome MCP"
     print -r -- "7) Stop Playwright MCP"
-    print -r -- "8) Stop both"
+    print -r -- "8) Stop all"
     print -r -- "9) Restart Playwright MCP (headed)"
     print -r -- "10) Restart Playwright MCP (headless)"
+    print -r -- "11) Start Skills MCP"
+    print -r -- "12) Restart Skills MCP"
     print -r -- "q) Quit"
     print -n -r -- "> "
     local choice
@@ -302,6 +456,8 @@ menu() {
       8) stop_target both ;;
       9) restart_target playwright-head ;;
       10) restart_target playwright-headless ;;
+      11) start_skills ;;
+      12) restart_target skills ;;
       q|Q) return 0 ;;
       *) print -u2 -r -- "Invalid choice." ;;
     esac
@@ -312,19 +468,21 @@ case "${0:t}" in
   mcp-chrome) start_chrome ;;
   mcp-playwright-head) start_playwright headed ;;
   mcp-playwright-headless|mcp-playwright) start_playwright headless ;;
+  mcp-skills) start_skills ;;
   *)
     case ${1:-} in
       "") menu ;;
       chrome) start_chrome ;;
       playwright-head) start_playwright headed ;;
       playwright-headless|playwright) start_playwright headless ;;
+      skills) start_skills ;;
       both) start_both ;;
       status) show_status ;;
       stop) stop_target "${2:-}" ;;
       restart) restart_target "${2:-}" ;;
       logs) show_logs "${2:-}" ;;
       *)
-        print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|both|status|stop TARGET|restart TARGET|logs TARGET]"
+        print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|skills|both|status|stop TARGET|restart TARGET|logs TARGET]"
         exit 2
         ;;
     esac

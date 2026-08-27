@@ -1,0 +1,12 @@
+#!/bin/zsh
+
+set -u
+
+print -r -- "${(j: :)@} PORT=${PORT:-}" >> "${FAKE_SKILLS_LOG:?}"
+mkdir -p "${FAKE_PROCESS_DIR:?}"
+print -r -- "$0 ${(j: :)@}" > "$FAKE_PROCESS_DIR/$$.command"
+
+trap 'rm -f "$FAKE_PROCESS_DIR/$$.command"; exit 0' TERM INT
+while true; do
+  sleep 1
+done

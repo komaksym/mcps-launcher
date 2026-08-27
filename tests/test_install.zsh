@@ -20,7 +20,7 @@ MCP_LAUNCHER_INSTALL_BIN_DIR="$bin_dir" "$TEST_ROOT/install.sh" >/dev/null
 cmp -s "$TEST_ROOT/bin/mcps" "$bin_dir/mcps" || fail "installed mcps differs from repository source"
 
 typeset alias
-for alias in mcp-chrome mcp-playwright mcp-playwright-head mcp-playwright-headless; do
+for alias in mcp-chrome mcp-playwright mcp-playwright-head mcp-playwright-headless mcp-skills; do
   [[ -L "$bin_dir/$alias" ]] || {
     fail "$alias is not a symlink"
     continue

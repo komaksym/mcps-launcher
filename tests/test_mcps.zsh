@@ -84,7 +84,7 @@ test_menu_chrome_and_errors() {
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "both starts Chrome"
-  assert_contains "$(last_invocation 3)" "--headless" "both selects background Playwright mode"
+  assert_contains "$all_args" "--headless" "both selects background Playwright mode"
   [[ -f "$TEST_SANDBOX/state/chrome.log" ]] || fail "Chrome log was not created"
   [[ -f "$TEST_SANDBOX/state/playwright.log" ]] || fail "Playwright log was not created"
 
@@ -104,14 +104,80 @@ test_menu_chrome_and_errors() {
   trap - EXIT
 }
 
+test_skills_lifecycle() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_alias mcp-skills >/dev/null
+  assert_contains "$(< "$FAKE_SKILLS_LOG")" "$SKILLS_MCP_SERVER_ENTRY PORT=2092" "Skills alias starts the configured loopback server"
+  assert_contains "$(last_invocation 1)" "--profile chatgpt-chat-skills-mcp" "Skills uses its dedicated tunnel profile"
+  assert_contains "$(last_invocation 1)" "url=http://127.0.0.1:2092/mcp,channel=main" "Skills tunnel targets the configured loopback endpoint"
+  assert_contains "$(run_launcher status)" "Skills MCP: running" "status reports Skills only when its lifecycle is active"
+  [[ -f "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills tunnel PID file was not created"
+  [[ -f "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills server PID file was not created"
+  assert_eq "$(< "$TEST_SANDBOX/state/skills-server-health.url")" "http://127.0.0.1:2092/healthz" "Skills server health URL follows the loopback convention"
+
+  run_launcher skills >/dev/null
+  assert_eq "$(fake_start_count)" "1" "duplicate Skills start does not replace its tunnel"
+  assert_eq "$(wc -l < "$FAKE_SKILLS_LOG" | tr -d ' ')" "1" "duplicate Skills start does not replace its server"
+
+  print -r -- "skills lifecycle log" >> "$TEST_SANDBOX/state/skills.log"
+  assert_contains "$(run_launcher logs skills)" "skills lifecycle log" "Skills logs use the Skills tunnel log"
+
+  run_launcher restart skills >/dev/null
+  assert_contains "$(run_launcher status)" "Skills MCP: running" "restart restores Skills lifecycle"
+  assert_eq "$(fake_start_count)" "2" "restart replaces the Skills tunnel once"
+
+  run_launcher stop skills >/dev/null
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "stop clears Skills lifecycle"
+  [[ ! -e "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills stop leaves a tunnel PID file"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills stop leaves a server PID file"
+  [[ ! -e "$TEST_SANDBOX/state/skills-health.url" ]] || fail "Skills stop leaves a tunnel health URL"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server-health.url" ]] || fail "Skills stop leaves a server health URL"
+
+  sleep 30 &
+  local unrelated=$!
+  print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills-server.pid"
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "unrelated Skills server PID is stale"
+  kill -0 "$unrelated" 2>/dev/null || fail "Skills stale cleanup signalled an unrelated process"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills stale server PID was not removed"
+  kill -TERM "$unrelated" 2>/dev/null || true
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
+test_skills_combined_startup() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_launcher both >/dev/null
+  local all_args
+  all_args=$(< "$FAKE_TUNNEL_LOG")
+  assert_contains "$all_args" "--profile chrome-browser-mcp" "combined startup preserves Chrome"
+  assert_contains "$all_args" "--profile playwright" "combined startup preserves Playwright"
+  assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp" "combined startup includes Skills"
+  assert_contains "$(run_launcher status)" "Skills MCP: running" "combined status includes Skills"
+
+  run_launcher stop both >/dev/null
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "combined stop includes Skills"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 case ${1:-all} in
   command_generation) test_command_generation ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
+  skills_lifecycle) test_skills_lifecycle ;;
+  skills_combined_startup) test_skills_combined_startup ;;
   all)
     test_command_generation
     test_lifecycle
     test_menu_chrome_and_errors
+    test_skills_lifecycle
+    test_skills_combined_startup
     ;;
   *) print -u2 -r -- "Unknown test group: $1"; exit 2 ;;
 esac
