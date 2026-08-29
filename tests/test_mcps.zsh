@@ -80,20 +80,27 @@ test_menu_chrome_and_errors() {
   assert_contains "$(run_launcher status)" "Chrome MCP: running" "status reports Chrome"
   run_launcher stop chrome >/dev/null
 
-  run_launcher both >/dev/null
+  run_launcher all >/dev/null
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
-  assert_contains "$all_args" "--profile chrome-browser-mcp" "both starts Chrome"
-  assert_contains "$all_args" "--headless" "both selects background Playwright mode"
+  assert_contains "$all_args" "--profile chrome-browser-mcp" "all starts Chrome"
+  assert_contains "$all_args" "--headless" "all selects background Playwright mode"
   [[ -f "$TEST_SANDBOX/state/chrome.log" ]] || fail "Chrome log was not created"
   [[ -f "$TEST_SANDBOX/state/playwright.log" ]] || fail "Playwright log was not created"
 
   run_launcher restart playwright-head >/dev/null
   assert_contains "$(run_launcher status)" "Playwright MCP: running (headed" "restart accepts an explicit Playwright mode"
 
-  run_launcher stop both >/dev/null
-  assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop both stops Chrome"
-  assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop both stops Playwright"
+  run_launcher stop all >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop all stops Chrome"
+  assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop all stops Playwright"
+
+  run_launcher both >/dev/null 2>&1
+  assert_eq "$?" "2" "removed both command exits 2"
+  run_launcher stop both >/dev/null 2>&1
+  assert_eq "$?" "2" "removed both stop target exits 2"
+  run_launcher restart both >/dev/null 2>&1
+  assert_eq "$?" "2" "removed both restart target exits 2"
 
   run_launcher nonsense >/dev/null 2>&1
   assert_eq "$?" "2" "unknown command exits 2"
@@ -161,7 +168,7 @@ test_skills_combined_startup() {
   assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp" "combined startup includes Skills"
   assert_contains "$(run_launcher status)" "Skills MCP: running" "combined status includes Skills"
 
-  run_launcher stop both >/dev/null
+  run_launcher stop all >/dev/null
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "combined stop includes Skills"
 
   cleanup_sandbox

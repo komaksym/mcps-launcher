@@ -1,0 +1,12 @@
+name: validation
+on:
+  push:
+    branches:
+      - codex/validate-review-fixes
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zsh ripgrep
+      - run: zsh tests/test_mcps.zsh menu_chrome_and_errors
