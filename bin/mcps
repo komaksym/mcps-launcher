@@ -128,14 +128,24 @@ playwright_command() {
 
 # Waits until the loopback-only Skills health endpoint accepts requests.
 ensure_skills_server() {
-  local i body response status url="http://127.0.0.1:$SKILLS_PORT/healthz"
+  local i body status url="http://127.0.0.1:$SKILLS_PORT/healthz"
   [[ -n $SKILLS_HEALTH_BIN && -x $SKILLS_HEALTH_BIN ]] || {
     print -u2 -r -- "curl executable not found. Set MCP_LAUNCHER_SKILLS_HEALTH_BIN."
     return 1
   }
   for (( i = 1; i <= SKILLS_HEALTH_ATTEMPTS; i++ )); do
-    if response=$("$SKILLS_HEALTH_BIN" --fail --silent --show-error \
-      --write-out 
+    if status=$("$SKILLS_HEALTH_BIN" --silent --show-error --output /dev/null \
+      --write-out '%{http_code}' "$url" 2>/dev/null) &&
+      [[ $status == 200 ]] &&
+      body=$("$SKILLS_HEALTH_BIN" --fail --silent --show-error "$url" 2>/dev/null) &&
+      [[ $body == '{"status":"ok"}' ]]; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  print -u2 -r -- "Skills MCP local server is not ready at $url."
+  return 1
+}
 
 ensure_chrome_server() {
   [[ ${MCP_LAUNCHER_SKIP_CHROME_OPEN:-0} == 1 ]] && return 0

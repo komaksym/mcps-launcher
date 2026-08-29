@@ -6,5 +6,8 @@ set -u
 [[ ${FAKE_HEALTH_STATUS:-failure} == success ]] || exit 22
 typeset body=${FAKE_HEALTH_BODY:-} code=${FAKE_HEALTH_CODE:-200}
 [[ -n $body ]] || body='{"status":"ok"}'
-print -r -- "$body"
-print -r -- "$code"
+if [[ " ${(j: :)@} " == *" --write-out "* ]]; then
+  print -r -- "$code"
+else
+  print -r -- "$body"
+fi
