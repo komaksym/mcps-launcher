@@ -11,6 +11,7 @@ readonly -a ALIASES=(
   mcp-playwright
   mcp-playwright-head
   mcp-playwright-headless
+  mcp-skills
 )
 
 [[ -f $SOURCE ]] || {

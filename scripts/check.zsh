@@ -10,6 +10,8 @@ readonly -a ZSH_FILES=(
   install.sh
   scripts/check.zsh
   tests/fake-ps
+  tests/fake-curl
+  tests/fake-skills-server
   tests/fake-tunnel-client
   tests/helpers.zsh
   tests/test_install.zsh

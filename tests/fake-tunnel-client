@@ -3,6 +3,7 @@
 set -u
 
 print -r -- "${(j: :)@}" >> "${FAKE_TUNNEL_LOG:?}"
+[[ ${FAKE_TUNNEL_EXIT:-0} == 1 ]] && exit 1
 mkdir -p "${FAKE_PROCESS_DIR:?}"
 print -r -- "$0 ${(j: :)@}" > "$FAKE_PROCESS_DIR/$$.command"
 
