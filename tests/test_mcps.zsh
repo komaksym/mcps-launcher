@@ -282,7 +282,9 @@ test_skills_failures() {
   print -r -- "editor $SKILLS_MCP_SERVER_ENTRY" > "$FAKE_PROCESS_DIR/$unrelated.command"
   print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills-server.pid"
   export SKILLS_MCP_NODE_BIN=""
-  local missing_node_status\n  missing_node_status=$(PATH=/bin:/usr/bin run_launcher status)\n  assert_contains "$missing_node_status" "Skills MCP: stopped" "missing Node identity cannot own an entry-only process"
+  local missing_node_status
+  missing_node_status=$(PATH=/bin:/usr/bin run_launcher status)
+  assert_contains "$missing_node_status" "Skills MCP: stopped" "missing Node identity cannot own an entry-only process"
   kill -0 "$unrelated" 2>/dev/null || fail "missing Node identity stale cleanup killed an unrelated process"
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "missing Node identity leaves a stale server PID"
   export SKILLS_MCP_NODE_BIN="$TEST_SANDBOX/bin/skills-server"
