@@ -17,15 +17,24 @@ readonly SKILLS_PROFILE="chatgpt-chat-skills-mcp"
 readonly SKILLS_HEALTH_BIN="${MCP_LAUNCHER_SKILLS_HEALTH_BIN:-$(command -v curl 2>/dev/null || true)}"
 readonly SKILLS_HEALTH_ATTEMPTS="${MCP_LAUNCHER_SKILLS_HEALTH_ATTEMPTS:-20}"
 
+typeset -Ar SERVICE_LABELS=(
+  chrome "Chrome MCP"
+  playwright "Playwright MCP"
+  skills "Skills MCP"
+  skills-server "Skills MCP server"
+)
+typeset -Ar TUNNEL_PROFILES=(
+  chrome chrome-browser-mcp
+  playwright playwright
+  skills "$SKILLS_PROFILE"
+)
+
 mkdir -p "$STATE_DIR" || exit 1
 
 label() {
-  case $1 in
-    chrome) print -r -- "Chrome MCP" ;;
-    playwright) print -r -- "Playwright MCP" ;;
-    skills) print -r -- "Skills MCP" ;;
-    skills-server) print -r -- "Skills MCP server" ;;
-  esac
+  local kind=$1
+  [[ -n ${SERVICE_LABELS[$kind]:-} ]] || return 1
+  print -r -- "${SERVICE_LABELS[$kind]}"
 }
 
 pid_file() { print -r -- "$STATE_DIR/$1.pid"; }
@@ -46,15 +55,12 @@ process_matches() {
   local kind=$1 pid=$2 command expected
   kill -0 "$pid" 2>/dev/null || return 1
   command=$("$PS_BIN" -p "$pid" -o command= 2>/dev/null) || return 1
-  case $kind in
-    chrome) expected=chrome-browser-mcp ;;
-    playwright) expected=playwright ;;
-    skills) expected=$SKILLS_PROFILE ;;
-    skills-server)
-      [[ $command == *"$SKILLS_NODE_BIN"* && $command == *"$SKILLS_SERVER_ENTRY"* ]]
-      return
-      ;;
-  esac
+  if [[ $kind == skills-server ]]; then
+    [[ $command == *"$SKILLS_NODE_BIN"* && $command == *"$SKILLS_SERVER_ENTRY"* ]]
+    return
+  fi
+  expected=${TUNNEL_PROFILES[$kind]:-}
+  [[ -n $expected ]] || return 1
   [[ $command == *tunnel-client* && $command == *"$expected"* ]]
 }
 
@@ -120,8 +126,43 @@ ensure_chrome_server() {
   return 1
 }
 
+# Runs the shared tunnel-client lifecycle and prints the managed PID on success.
+start_tunnel() {
+  local kind=$1 failure_name=$2 pid pfile logfile hfile child
+  shift 2
+  pfile=$(pid_file "$kind")
+  logfile=$(log_file "$kind")
+  hfile=$(health_file "$kind")
+  : >> "$logfile"
+  rm -f "$pfile" "$hfile"
+
+  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run "$@" \
+    --profile-dir "$PROFILE_DIR" \
+    --pid.file "$pfile" \
+    --log.file "$logfile" \
+    --health.listen-addr "127.0.0.1:0" \
+    --health.url-file "$hfile" \
+    </dev/null >/dev/null 2>&1 &
+  child=$!
+  sleep "$STARTUP_WAIT"
+
+  if pid=$(running_pid "$kind"); then
+    print -r -- "$pid"
+    return 0
+  fi
+  if kill -0 "$child" 2>/dev/null; then
+    print -r -- "$child" > "$pfile"
+    print -r -- "$child"
+    return 0
+  fi
+  rm -f "$pfile" "$hfile"
+  print -u2 -r -- "$failure_name failed to start. See $logfile"
+  tail -n 10 "$logfile" >&2 2>/dev/null || true
+  return 1
+}
+
 start_chrome() {
-  local pid pfile logfile hfile child
+  local pid
   if pid=$(running_pid chrome); then
     print -r -- "Chrome MCP is already running (PID $pid)."
     return 0
@@ -132,40 +173,15 @@ start_chrome() {
   }
   ensure_chrome_server || return 1
 
-  pfile=$(pid_file chrome)
-  logfile=$(log_file chrome)
-  hfile=$(health_file chrome)
-  : >> "$logfile"
-  rm -f "$pfile" "$hfile"
-
-  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run \
-    --profile chrome-browser-mcp \
-    --profile-dir "$PROFILE_DIR" \
-    --pid.file "$pfile" \
-    --log.file "$logfile" \
-    --health.listen-addr "127.0.0.1:0" \
-    --health.url-file "$hfile" \
-    </dev/null >/dev/null 2>&1 &
-  child=$!
-  sleep "$STARTUP_WAIT"
-
-  if pid=$(running_pid chrome); then
+  if pid=$(start_tunnel chrome "Chrome MCP" --profile chrome-browser-mcp); then
     print -r -- "Chrome MCP started (PID $pid)."
     return 0
   fi
-  if kill -0 "$child" 2>/dev/null; then
-    print -r -- "$child" > "$pfile"
-    print -r -- "Chrome MCP started (PID $child)."
-    return 0
-  fi
-  rm -f "$pfile" "$hfile"
-  print -u2 -r -- "Chrome MCP failed to start. See $logfile"
-  tail -n 10 "$logfile" >&2 2>/dev/null || true
   return 1
 }
 
 start_playwright() {
-  local mode=$1 pid current pfile logfile hfile child command
+  local mode=$1 pid current command
   if pid=$(running_pid playwright); then
     current=$(read_mode 2>/dev/null || true)
     if [[ $current == "$mode" ]]; then
@@ -179,39 +195,15 @@ start_playwright() {
     return 1
   }
 
-  pfile=$(pid_file playwright)
-  logfile=$(log_file playwright)
-  hfile=$(health_file playwright)
   command=$(playwright_command "$mode")
-  : >> "$logfile"
-  rm -f "$pfile" "$hfile"
-
-  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run \
+  if pid=$(start_tunnel playwright "Playwright MCP" \
     --profile playwright \
-    --profile-dir "$PROFILE_DIR" \
-    --mcp.command "$command" \
-    --pid.file "$pfile" \
-    --log.file "$logfile" \
-    --health.listen-addr "127.0.0.1:0" \
-    --health.url-file "$hfile" \
-    </dev/null >/dev/null 2>&1 &
-  child=$!
-  sleep "$STARTUP_WAIT"
-
-  if pid=$(running_pid playwright); then
+    --mcp.command "$command"); then
     print -r -- "$mode" > "$(mode_file)"
     print -r -- "Playwright MCP started in $mode mode (PID $pid)."
     return 0
   fi
-  if kill -0 "$child" 2>/dev/null; then
-    print -r -- "$child" > "$pfile"
-    print -r -- "$mode" > "$(mode_file)"
-    print -r -- "Playwright MCP started in $mode mode (PID $child)."
-    return 0
-  fi
-  rm -f "$pfile" "$hfile" "$(mode_file)"
-  print -u2 -r -- "Playwright MCP failed to start. See $logfile"
-  tail -n 10 "$logfile" >&2 2>/dev/null || true
+  rm -f "$(mode_file)"
   return 1
 }
 
@@ -258,7 +250,7 @@ start_skills_server() {
 
 # Starts the dedicated tunnel only after the Skills loopback server is alive.
 start_skills() {
-  local tunnel_pid server_pid pfile logfile hfile child
+  local tunnel_pid server_pid
   if tunnel_pid=$(running_pid skills) && server_pid=$(running_pid skills-server); then
     print -r -- "Skills MCP is already running (server PID $server_pid, tunnel PID $tunnel_pid)."
     return 0
@@ -272,37 +264,13 @@ start_skills() {
   start_skills_server || return 1
   server_pid=$(running_pid skills-server) || return 1
 
-  pfile=$(pid_file skills)
-  logfile=$(log_file skills)
-  hfile=$(health_file skills)
-  : >> "$logfile"
-  rm -f "$pfile" "$hfile"
-
-  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run \
+  if tunnel_pid=$(start_tunnel skills "Skills MCP tunnel" \
     --profile "$SKILLS_PROFILE" \
-    --profile-dir "$PROFILE_DIR" \
-    --mcp.server-url "url=http://127.0.0.1:$SKILLS_PORT/mcp,channel=main" \
-    --pid.file "$pfile" \
-    --log.file "$logfile" \
-    --health.listen-addr "127.0.0.1:0" \
-    --health.url-file "$hfile" \
-    </dev/null >/dev/null 2>&1 &
-  child=$!
-  sleep "$STARTUP_WAIT"
-
-  if tunnel_pid=$(running_pid skills); then
+    --mcp.server-url "url=http://127.0.0.1:$SKILLS_PORT/mcp,channel=main"); then
     print -r -- "Skills MCP started (server PID $server_pid, tunnel PID $tunnel_pid)."
     return 0
   fi
-  if kill -0 "$child" 2>/dev/null; then
-    print -r -- "$child" > "$pfile"
-    print -r -- "Skills MCP started (server PID $server_pid, tunnel PID $child)."
-    return 0
-  fi
-  rm -f "$pfile" "$hfile"
   stop_kind skills-server >/dev/null
-  print -u2 -r -- "Skills MCP tunnel failed to start. See $logfile"
-  tail -n 10 "$logfile" >&2 2>/dev/null || true
   return 1
 }
 
@@ -382,14 +350,14 @@ stop_target() {
   case $1 in
     chrome|playwright) stop_kind "$1" ;;
     skills) stop_kind skills && stop_kind skills-server ;;
-    both|all)
+    all)
       stop_kind chrome
       stop_kind playwright
       stop_kind skills
       stop_kind skills-server
       ;;
     *)
-      print -u2 -r -- "Usage: mcps stop {chrome|playwright|skills|all|both}"
+      print -u2 -r -- "Usage: mcps stop {chrome|playwright|skills|all}"
       return 2
       ;;
   esac
@@ -401,9 +369,9 @@ restart_target() {
     playwright|playwright-headless) stop_kind playwright && start_playwright headless ;;
     playwright-head) stop_kind playwright && start_playwright headed ;;
     skills) stop_target skills && start_skills ;;
-    both|all) stop_target all && start_all ;;
+    all) stop_target all && start_all ;;
     *)
-      print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|skills|all|both}"
+      print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|skills|all}"
       return 2
       ;;
   esac
@@ -481,13 +449,13 @@ case "${0:t}" in
       playwright-head) start_playwright headed ;;
       playwright-headless|playwright) start_playwright headless ;;
       skills) start_skills ;;
-      both|all) start_all ;;
+      all) start_all ;;
       status) show_status ;;
       stop) stop_target "${2:-}" ;;
       restart) restart_target "${2:-}" ;;
       logs) show_logs "${2:-}" ;;
       *)
-        print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|skills|all|both|status|stop TARGET|restart TARGET|logs TARGET]"
+        print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|skills|all|status|stop TARGET|restart TARGET|logs TARGET]"
         exit 2
         ;;
     esac
