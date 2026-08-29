@@ -64,6 +64,7 @@ setup_sandbox() {
   export FAKE_PROCESS_DIR="$TEST_SANDBOX/processes"
   export FAKE_HEALTH_STATUS=success
   export FAKE_HEALTH_BODY='{"status":"ok"}'
+  export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=0
   export FAKE_SKILLS_SERVER_EXIT=0
   mkdir -p "$FAKE_PROCESS_DIR" "$TEST_SANDBOX/skills/dist"

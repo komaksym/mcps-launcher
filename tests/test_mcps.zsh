@@ -239,6 +239,13 @@ test_skills_failures() {
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "wrong health body leaves the server running"
 
   export FAKE_HEALTH_BODY='{"status":"ok"}'
+  export FAKE_HEALTH_CODE=201
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "non-200 health response exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "non-200 health response does not start a tunnel"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "non-200 health response leaves the server running"
+
+  export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=1
   run_launcher skills >/dev/null 2>&1
   assert_eq "$?" "1" "tunnel launch failure exits non-zero"
