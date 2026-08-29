@@ -10,7 +10,7 @@ readonly TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-/usr/local/bin/tunnel-client}"
 readonly PS_BIN="${MCP_LAUNCHER_PS_BIN:-/bin/ps}"
 readonly STARTUP_WAIT="${MCP_LAUNCHER_STARTUP_WAIT:-1}"
 readonly PLAYWRIGHT_USER_DATA_DIR="${PLAYWRIGHT_MCP_USER_DATA_DIR:-$HOME/.playwright-spotify}"
-readonly SKILLS_NODE_BIN="${SKILLS_MCP_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
+readonly SKILLS_NODE_BIN="${SKILLS_MCP_NODE_BIN-$(command -v node 2>/dev/null || true)}"
 readonly SKILLS_SERVER_ENTRY="${SKILLS_MCP_SERVER_ENTRY:-$HOME/.local/share/chatgpt-chat-skills-mcp/dist/main.js}"
 readonly SKILLS_PORT="${SKILLS_MCP_PORT:-2092}"
 readonly SKILLS_PROFILE="chatgpt-chat-skills-mcp"
@@ -27,6 +27,36 @@ typeset -Ar TUNNEL_PROFILES=(
   chrome chrome-browser-mcp
   playwright playwright
   skills "$SKILLS_PROFILE"
+)
+typeset -Ar START_ACTIONS=(
+  chrome start_chrome
+  playwright start_playwright_headless
+  playwright-headless start_playwright_headless
+  playwright-head start_playwright_head
+  skills start_skills
+  both start_both
+  all start_all
+)
+typeset -Ar STOP_KINDS=(
+  chrome "chrome"
+  playwright "playwright"
+  skills "skills skills-server"
+  both "chrome playwright"
+  all "chrome playwright skills skills-server"
+)
+typeset -Ar RESTART_STOP_TARGETS=(
+  chrome chrome
+  playwright playwright
+  playwright-headless playwright
+  playwright-head playwright
+  skills skills
+  both both
+  all all
+)
+typeset -Ar LOG_TARGETS=(
+  chrome 1
+  playwright 1
+  skills 1
 )
 
 mkdir -p "$STATE_DIR" || exit 1
@@ -56,6 +86,7 @@ process_matches() {
   kill -0 "$pid" 2>/dev/null || return 1
   command=$("$PS_BIN" -p "$pid" -o command= 2>/dev/null) || return 1
   if [[ $kind == skills-server ]]; then
+    [[ -n $SKILLS_NODE_BIN && -n $SKILLS_SERVER_ENTRY ]] || return 1
     [[ $command == *"$SKILLS_NODE_BIN"* && $command == *"$SKILLS_SERVER_ENTRY"* ]]
     return
   fi
@@ -97,13 +128,16 @@ playwright_command() {
 
 # Waits until the loopback-only Skills health endpoint accepts requests.
 ensure_skills_server() {
-  local i url="http://127.0.0.1:$SKILLS_PORT/healthz"
+  local i body url="http://127.0.0.1:$SKILLS_PORT/healthz"
   [[ -n $SKILLS_HEALTH_BIN && -x $SKILLS_HEALTH_BIN ]] || {
     print -u2 -r -- "curl executable not found. Set MCP_LAUNCHER_SKILLS_HEALTH_BIN."
     return 1
   }
   for (( i = 1; i <= SKILLS_HEALTH_ATTEMPTS; i++ )); do
-    "$SKILLS_HEALTH_BIN" --fail --silent --show-error "$url" >/dev/null 2>&1 && return 0
+    if body=$("$SKILLS_HEALTH_BIN" --fail --silent --show-error "$url" 2>/dev/null) &&
+      [[ $body == '{"status":"ok"}' ]]; then
+      return 0
+    fi
     sleep 0.5
   done
   print -u2 -r -- "Skills MCP local server is not ready at $url."
@@ -336,50 +370,60 @@ show_status() {
   status_skills
 }
 
-start_all() {
+start_playwright_head() { start_playwright headed; }
+start_playwright_headless() { start_playwright headless; }
+
+start_both() {
   start_chrome
   local chrome_status=$?
   start_playwright headless
   local playwright_status=$?
+  return $(( chrome_status || playwright_status ))
+}
+
+start_all() {
+  start_both
+  local both_status=$?
   start_skills
   local skills_status=$?
-  return $(( chrome_status || playwright_status || skills_status ))
+  return $(( both_status || skills_status ))
+}
+
+start_target() {
+  local target=$1 action
+  action=${START_ACTIONS[$target]:-}
+  [[ -n $action ]] || {
+    print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|skills|both|all|status|stop TARGET|restart TARGET|logs TARGET]"
+    return 2
+  }
+  "$action"
 }
 
 stop_target() {
-  case $1 in
-    chrome|playwright) stop_kind "$1" ;;
-    skills) stop_kind skills && stop_kind skills-server ;;
-    all)
-      stop_kind chrome
-      stop_kind playwright
-      stop_kind skills
-      stop_kind skills-server
-      ;;
-    *)
-      print -u2 -r -- "Usage: mcps stop {chrome|playwright|skills|all}"
-      return 2
-      ;;
-  esac
+  local target=$1 kinds kind
+  kinds=${STOP_KINDS[$target]:-}
+  [[ -n $kinds ]] || {
+    print -u2 -r -- "Usage: mcps stop {chrome|playwright|skills|both|all}"
+    return 2
+  }
+  for kind in ${(z)kinds}; do
+    stop_kind "$kind" || return 1
+  done
 }
 
 restart_target() {
-  case $1 in
-    chrome) stop_kind chrome && start_chrome ;;
-    playwright|playwright-headless) stop_kind playwright && start_playwright headless ;;
-    playwright-head) stop_kind playwright && start_playwright headed ;;
-    skills) stop_target skills && start_skills ;;
-    all) stop_target all && start_all ;;
-    *)
-      print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|skills|all}"
-      return 2
-      ;;
-  esac
+  local target=$1 stop_target_name
+  stop_target_name=${RESTART_STOP_TARGETS[$target]:-}
+  [[ -n $stop_target_name ]] || {
+    print -u2 -r -- "Usage: mcps restart {chrome|playwright|playwright-head|playwright-headless|skills|both|all}"
+    return 2
+  }
+  stop_target "$stop_target_name" && start_target "$target"
 }
 
 show_logs() {
   local kind=$1 file
-  [[ $kind == chrome || $kind == playwright || $kind == skills ]] || {
+  [[ -n ${LOG_TARGETS[$kind]:-} ]] || {
     print -u2 -r -- "Usage: mcps logs {chrome|playwright|skills}"
     return 2
   }
@@ -419,17 +463,17 @@ menu() {
     local choice
     IFS= read -r choice || return 0
     case $choice in
-      1) start_chrome ;;
-      2) start_playwright headed ;;
-      3) start_playwright headless ;;
-      4) start_all ;;
+      1) start_target chrome ;;
+      2) start_target playwright-head ;;
+      3) start_target playwright-headless ;;
+      4) start_target all ;;
       5) show_status ;;
       6) stop_kind chrome ;;
       7) stop_kind playwright ;;
       8) stop_target all ;;
       9) restart_target playwright-head ;;
       10) restart_target playwright-headless ;;
-      11) start_skills ;;
+      11) start_target skills ;;
       12) restart_target skills ;;
       q|Q) return 0 ;;
       *) print -u2 -r -- "Invalid choice." ;;
@@ -438,26 +482,18 @@ menu() {
 }
 
 case "${0:t}" in
-  mcp-chrome) start_chrome ;;
-  mcp-playwright-head) start_playwright headed ;;
-  mcp-playwright-headless|mcp-playwright) start_playwright headless ;;
-  mcp-skills) start_skills ;;
+  mcp-chrome) start_target chrome ;;
+  mcp-playwright-head) start_target playwright-head ;;
+  mcp-playwright-headless|mcp-playwright) start_target playwright-headless ;;
+  mcp-skills) start_target skills ;;
   *)
     case ${1:-} in
       "") menu ;;
-      chrome) start_chrome ;;
-      playwright-head) start_playwright headed ;;
-      playwright-headless|playwright) start_playwright headless ;;
-      skills) start_skills ;;
-      all) start_all ;;
       status) show_status ;;
       stop) stop_target "${2:-}" ;;
       restart) restart_target "${2:-}" ;;
       logs) show_logs "${2:-}" ;;
-      *)
-        print -u2 -r -- "Usage: mcps [chrome|playwright|playwright-head|playwright-headless|skills|all|status|stop TARGET|restart TARGET|logs TARGET]"
-        exit 2
-        ;;
+      *) start_target "${1:-}" ;;
     esac
   ;;
 esac

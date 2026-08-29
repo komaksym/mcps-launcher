@@ -95,17 +95,38 @@ test_menu_chrome_and_errors() {
   assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop all stops Chrome"
   assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop all stops Playwright"
 
-  run_launcher both >/dev/null 2>&1
-  assert_eq "$?" "2" "removed both command exits 2"
-  run_launcher stop both >/dev/null 2>&1
-  assert_eq "$?" "2" "removed both stop target exits 2"
-  run_launcher restart both >/dev/null 2>&1
-  assert_eq "$?" "2" "removed both restart target exits 2"
-
   run_launcher nonsense >/dev/null 2>&1
   assert_eq "$?" "2" "unknown command exits 2"
   run_launcher stop nonsense >/dev/null 2>&1
   assert_eq "$?" "2" "unknown stop target exits 2"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
+# Preserves the pre-Skills Chrome + headless Playwright combined target.
+test_both_compatibility() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_launcher both >/dev/null
+  local both_args
+  both_args=$(< "$FAKE_TUNNEL_LOG")
+  assert_eq "$(fake_start_count)" "2" "both starts exactly Chrome and Playwright"
+  assert_contains "$both_args" "--profile chrome-browser-mcp" "both preserves Chrome"
+  assert_contains "$both_args" "--profile playwright" "both preserves Playwright"
+  assert_not_contains "$both_args" "--profile chatgpt-chat-skills-mcp" "both does not silently add Skills"
+  assert_contains "$(run_launcher status)" "Playwright MCP: running (headless" "both preserves headless Playwright mode"
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "both leaves Skills stopped"
+
+  run_launcher stop both >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop both stops Chrome"
+  assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop both stops Playwright"
+
+  run_launcher restart both >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP: running" "restart both restores Chrome"
+  assert_contains "$(run_launcher status)" "Playwright MCP: running (headless" "restart both restores headless Playwright"
+  assert_contains "$(run_launcher status)" "Skills MCP: stopped" "restart both leaves Skills stopped"
 
   cleanup_sandbox
   trap - EXIT
@@ -155,6 +176,23 @@ test_skills_lifecycle() {
   trap - EXIT
 }
 
+# Verifies one configured port is used consistently across the complete Skills seam.
+test_skills_configured_port() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  export SKILLS_MCP_PORT=3092
+  run_launcher skills >/dev/null
+
+  assert_contains "$(< "$FAKE_SKILLS_LOG")" "PORT=3092" "Skills server receives configured port"
+  assert_contains "$(< "$FAKE_CURL_LOG")" "http://127.0.0.1:3092/healthz" "Skills health probe uses configured port"
+  assert_eq "$(< "$TEST_SANDBOX/state/skills-server-health.url")" "http://127.0.0.1:3092/healthz" "Skills health state uses configured port"
+  assert_contains "$(last_invocation 1)" "url=http://127.0.0.1:3092/mcp,channel=main" "Skills tunnel uses configured port"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 # Verifies combined startup adds Skills without removing existing services.
 test_skills_combined_startup() {
   setup_sandbox
@@ -194,6 +232,13 @@ test_skills_failures() {
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "health failure leaves the server running"
 
   export FAKE_HEALTH_STATUS=success
+  export FAKE_HEALTH_BODY='{"status":"wrong"}'
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "wrong health body exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "wrong health body does not start a tunnel"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "wrong health body leaves the server running"
+
+  export FAKE_HEALTH_BODY='{"status":"ok"}'
   export FAKE_TUNNEL_EXIT=1
   run_launcher skills >/dev/null 2>&1
   assert_eq "$?" "1" "tunnel launch failure exits non-zero"
@@ -234,6 +279,17 @@ test_skills_failures() {
 
   sleep 30 &
   unrelated=$!
+  print -r -- "editor $SKILLS_MCP_SERVER_ENTRY" > "$FAKE_PROCESS_DIR/$unrelated.command"
+  print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills-server.pid"
+  export SKILLS_MCP_NODE_BIN=""
+  local missing_node_status\n  missing_node_status=$(PATH=/bin:/usr/bin run_launcher status)\n  assert_contains "$missing_node_status" "Skills MCP: stopped" "missing Node identity cannot own an entry-only process"
+  kill -0 "$unrelated" 2>/dev/null || fail "missing Node identity stale cleanup killed an unrelated process"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "missing Node identity leaves a stale server PID"
+  export SKILLS_MCP_NODE_BIN="$TEST_SANDBOX/bin/skills-server"
+  kill -TERM "$unrelated" 2>/dev/null || true
+
+  sleep 30 &
+  unrelated=$!
   print -r -- "tunnel-client run --profile playwright" > "$FAKE_PROCESS_DIR/$unrelated.command"
   print -r -- "$unrelated" > "$TEST_SANDBOX/state/skills.pid"
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "wrong-profile tunnel PID is stale"
@@ -248,14 +304,18 @@ case ${1:-all} in
   command_generation) test_command_generation ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
+  both_compatibility) test_both_compatibility ;;
   skills_lifecycle) test_skills_lifecycle ;;
+  skills_configured_port) test_skills_configured_port ;;
   skills_combined_startup) test_skills_combined_startup ;;
   skills_failures) test_skills_failures ;;
   all)
     test_command_generation
     test_lifecycle
     test_menu_chrome_and_errors
+    test_both_compatibility
     test_skills_lifecycle
+    test_skills_configured_port
     test_skills_combined_startup
     test_skills_failures
     ;;

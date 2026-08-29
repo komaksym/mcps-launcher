@@ -81,18 +81,21 @@ mcp-playwright-head          # Playwright with a visible browser
 mcp-playwright-headless      # Playwright in the background
 mcp-playwright               # backward-compatible headless alias
 mcp-skills                   # Skills loopback server + tunnel
+mcps both                    # Chrome + headless Playwright (backward compatible)
 mcps all                     # Chrome + headless Playwright + Skills
 
 mcps status
 mcps stop chrome
 mcps stop playwright
 mcps stop skills
+mcps stop both
 mcps stop all
 
 mcps restart chrome
 mcps restart playwright-head
 mcps restart playwright-headless
 mcps restart skills
+mcps restart both
 mcps restart all
 
 mcps logs chrome

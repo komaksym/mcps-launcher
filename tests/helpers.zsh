@@ -60,8 +60,10 @@ setup_sandbox() {
   export MCP_LAUNCHER_LOG_FOLLOW=0
   export FAKE_TUNNEL_LOG="$TEST_SANDBOX/tunnel-args.log"
   export FAKE_SKILLS_LOG="$TEST_SANDBOX/skills-args.log"
+  export FAKE_CURL_LOG="$TEST_SANDBOX/curl-args.log"
   export FAKE_PROCESS_DIR="$TEST_SANDBOX/processes"
   export FAKE_HEALTH_STATUS=success
+  export FAKE_HEALTH_BODY='{"status":"ok"}'
   export FAKE_TUNNEL_EXIT=0
   export FAKE_SKILLS_SERVER_EXIT=0
   mkdir -p "$FAKE_PROCESS_DIR" "$TEST_SANDBOX/skills/dist"
