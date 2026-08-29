@@ -9,4 +9,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y zsh ripgrep
-      - run: zsh tests/test_mcps.zsh menu_chrome_and_errors
+      - name: Syntax
+        run: zsh -n bin/mcps install.sh scripts/check.zsh tests/fake-ps tests/fake-curl tests/fake-skills-server tests/fake-tunnel-client tests/helpers.zsh tests/test_install.zsh tests/test_mcps.zsh
+      - name: Focused removed-command seam
+        run: zsh tests/test_mcps.zsh menu_chrome_and_errors
+      - name: Focused combined lifecycle seam
+        run: zsh tests/test_mcps.zsh skills_combined_startup
+      - name: Full repository check
+        run: zsh scripts/check.zsh
