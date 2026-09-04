@@ -64,6 +64,28 @@ mcps all
 
 ## Milestone — Three Chrome profiles and Skills tunnel fan-out
 
+## Milestone — Truthful Chrome bridge readiness
+
+The launcher must distinguish a live tunnel-client process from a reachable
+Chrome MCP bridge. Chrome status and successful startup will probe each
+configured loopback bridge port, so stale tunnel processes cannot be reported
+as usable Chrome MCP routes.
+
+```text
+mcps status / mcp-chrome*
+             |
+             v
+ tunnel process + :209x bridge probe
+             |
+             +--> usable route
+             `--> tunnel alive, upstream stopped
+```
+
+1. Add a loopback bridge probe for each Chrome instance.
+2. Require the probe before reporting a Chrome route started or running.
+3. Cover both healthy and stale-upstream behavior through the public launcher
+   test seam.
+
 ## Summary
 
 Manage three fixed Chrome bridge instances and multiple account-bound Skills

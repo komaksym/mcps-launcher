@@ -1,0 +1,5 @@
+#!/bin/zsh
+
+set -u
+
+[[ ${FAKE_NC_STATUS:-0} == 0 ]]

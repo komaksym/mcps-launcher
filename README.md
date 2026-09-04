@@ -28,6 +28,7 @@ repository.
 
 - macOS with zsh
 - `curl` for Skills server readiness checks
+- `nc` for Chrome bridge readiness checks
 - `tunnel-client` installed at `/usr/local/bin/tunnel-client`, or
   `TUNNEL_CLIENT_BIN` pointing to it
 - existing tunnel-client profiles named `chrome-browser-mcp`,
@@ -155,6 +156,14 @@ Skills MCP (current): running (PID 12347)
 Skills MCP (new subscription): running (PID 12348)
 Skills MCP (agent): running (PID 12349)
 Skills MCP: running (server PID 12346, 3 tunnels)
+```
+
+Chrome status checks both the tunnel process and its configured local bridge.
+If the tunnel is alive but Chrome has stopped listening, status reports the
+degraded route explicitly instead of claiming that Chrome MCP is usable:
+
+```text
+Chrome MCP: tunnel running, upstream stopped (127.0.0.1:2091)
 ```
 
 ## Configure Chrome MCP

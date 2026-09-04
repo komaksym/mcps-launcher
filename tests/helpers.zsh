@@ -34,11 +34,13 @@ setup_sandbox() {
   cp "$TEST_ROOT/tests/fake-ps" "$TEST_SANDBOX/bin/ps"
   cp "$TEST_ROOT/tests/fake-skills-server" "$TEST_SANDBOX/bin/skills-server"
   cp "$TEST_ROOT/tests/fake-curl" "$TEST_SANDBOX/bin/curl"
+  cp "$TEST_ROOT/tests/fake-nc" "$TEST_SANDBOX/bin/nc"
   cp "$TEST_ROOT/tests/fake-security" "$TEST_SANDBOX/bin/security"
   chmod +x "$TEST_SANDBOX/bin/tunnel-client"
   chmod +x "$TEST_SANDBOX/bin/ps"
   chmod +x "$TEST_SANDBOX/bin/skills-server"
   chmod +x "$TEST_SANDBOX/bin/curl"
+  chmod +x "$TEST_SANDBOX/bin/nc"
   chmod +x "$TEST_SANDBOX/bin/security"
   ln -s "$TEST_ROOT/bin/mcps" "$TEST_SANDBOX/bin/mcps"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome"
@@ -57,6 +59,7 @@ setup_sandbox() {
   export TUNNEL_CLIENT_BIN="$TEST_SANDBOX/bin/tunnel-client"
   export MCP_LAUNCHER_PS_BIN="$TEST_SANDBOX/bin/ps"
   export MCP_LAUNCHER_SECURITY_BIN="$TEST_SANDBOX/bin/security"
+  export MCP_LAUNCHER_CHROME_PROBE_BIN="$TEST_SANDBOX/bin/nc"
   export MCP_LAUNCHER_STARTUP_WAIT=0.5
   export MCP_LAUNCHER_SKIP_CHROME_OPEN=1
   export PLAYWRIGHT_MCP_USER_DATA_DIR="$TEST_SANDBOX/.playwright-spotify"
@@ -79,6 +82,7 @@ setup_sandbox() {
   export FAKE_TUNNEL_EXIT=0
   export FAKE_TUNNEL_HEALTH=1
   export FAKE_KEYCHAIN_VALUE=ck
+  export FAKE_NC_STATUS=0
   export FAKE_SKILLS_SERVER_EXIT=0
   local profile
   unset CONTROL_PLANE_API_KEY CONTROL_PLANE_API_KEY_2 CONTROL_PLANE_API_KEY_AGENT CONTROL_PLANE_API_KEY_ACCT2

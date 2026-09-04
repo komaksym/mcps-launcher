@@ -159,6 +159,29 @@ test_chrome_topology_failures() {
   trap - EXIT
 }
 
+# Distinguishes a live tunnel process from a reachable Chrome MCP bridge.
+test_chrome_upstream_readiness() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_alias mcp-chrome >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP: running" "healthy Chrome bridge reports running"
+
+  export FAKE_NC_STATUS=1
+  local snapshot
+  snapshot=$(run_launcher status)
+  assert_contains "$snapshot" "Chrome MCP: tunnel running, upstream stopped (127.0.0.1:2091)" "stale Chrome bridge is visible in status"
+  assert_not_contains "$snapshot" "Chrome MCP: running (PID" "stale Chrome bridge is not reported as usable"
+
+  run_launcher stop chrome >/dev/null
+  run_alias mcp-chrome2 >/dev/null 2>&1
+  assert_eq "$?" "1" "Chrome startup fails when its bridge disappears"
+  [[ ! -e "$TEST_SANDBOX/state/chrome2.pid" ]] || fail "failed Chrome startup leaves a tunnel PID"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 # Preserves the pre-Skills Chrome + headless Playwright combined target.
 test_both_compatibility() {
   setup_sandbox
@@ -403,6 +426,7 @@ case ${1:-all} in
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
   chrome_topology_failures) test_chrome_topology_failures ;;
+  chrome_upstream_readiness) test_chrome_upstream_readiness ;;
   both_compatibility) test_both_compatibility ;;
   skills_lifecycle) test_skills_lifecycle ;;
   skills_configured_port) test_skills_configured_port ;;
@@ -414,6 +438,7 @@ case ${1:-all} in
     test_lifecycle
     test_menu_chrome_and_errors
     test_chrome_topology_failures
+    test_chrome_upstream_readiness
     test_both_compatibility
     test_skills_lifecycle
     test_skills_configured_port

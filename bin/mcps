@@ -21,6 +21,7 @@ readonly SKILLS_PROFILE_2="${SKILLS_MCP_PROFILE_2:-chatgpt-chat-skills-mcp-2}"
 readonly SKILLS_PROFILE_3="${SKILLS_MCP_PROFILE_3:-chatgpt-chat-skills-mcp-3}"
 readonly SKILLS_HEALTH_BIN="${MCP_LAUNCHER_SKILLS_HEALTH_BIN:-$(command -v curl 2>/dev/null || true)}"
 readonly SKILLS_HEALTH_ATTEMPTS="${MCP_LAUNCHER_SKILLS_HEALTH_ATTEMPTS:-20}"
+readonly CHROME_PROBE_BIN="${MCP_LAUNCHER_CHROME_PROBE_BIN:-$(command -v nc 2>/dev/null || true)}"
 readonly TUNNEL_HEALTH_ATTEMPTS="${MCP_LAUNCHER_TUNNEL_HEALTH_ATTEMPTS:-20}"
 readonly CHROME_INSTANCES_FILE="${CHROME_MCP_INSTANCES_FILE:-$HOME/Library/Application Support/Chrome Browser MCP/instances.json}"
 readonly TOPOLOGY_NODE_BIN="${MCP_LAUNCHER_TOPOLOGY_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
@@ -255,18 +256,25 @@ ensure_skills_server() {
 ensure_chrome_server() {
   local port=$1 extension_id=$2
   [[ ${MCP_LAUNCHER_SKIP_CHROME_OPEN:-0} == 1 ]] && return 0
-  nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && return 0
+  chrome_bridge_ready "$port" && return 0
   if [[ -d "/Applications/Google Chrome.app" ]]; then
     open -a "Google Chrome" >/dev/null 2>&1 || true
     local i
     for i in {1..20}; do
-      nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && return 0
+      chrome_bridge_ready "$port" && return 0
       sleep 0.5
     done
   fi
   print -u2 -r -- "Chrome MCP local server is not ready on 127.0.0.1:$port."
   print -u2 -r -- "Open Chrome and enable extension $extension_id."
   return 1
+}
+
+# Checks the configured loopback port that actually serves Chrome MCP traffic.
+chrome_bridge_ready() {
+  local port=$1
+  [[ -n $CHROME_PROBE_BIN && -x $CHROME_PROBE_BIN ]] || return 1
+  "$CHROME_PROBE_BIN" -z 127.0.0.1 "$port" >/dev/null 2>&1
 }
 
 # Requires a machine-local tunnel profile before starting any child process.
@@ -399,8 +407,13 @@ start_chrome_instance() {
   ensure_chrome_server "$port" "$extension_id" || return 1
 
   if pid=$(start_tunnel "$kind" "$(label "$kind")" --profile "$profile"); then
-    print -r -- "$(label "$kind") started (PID $pid)."
-    return 0
+    if chrome_bridge_ready "$port"; then
+      print -r -- "$(label "$kind") started (PID $pid)."
+      return 0
+    fi
+    stop_kind "$kind" >/dev/null
+    print -u2 -r -- "$(label "$kind") tunnel started, but the upstream bridge is unavailable on 127.0.0.1:$port."
+    return 1
   fi
   return 1
 }
@@ -594,32 +607,27 @@ stop_kind() {
 
 stop_playwright() { stop_kind playwright; }
 
-status_chrome() {
-  local pid
-  if pid=$(running_pid chrome); then
-    print -r -- "Chrome MCP: running (PID $pid)"
+status_chrome_instance() {
+  local kind=$1 pid port
+  load_chrome_topology >/dev/null 2>&1 || {
+    print -r -- "$(label "$kind"): stopped"
+    return 0
+  }
+  port=${CHROME_PORTS[$kind]}
+  if pid=$(running_pid "$kind"); then
+    if chrome_bridge_ready "$port"; then
+      print -r -- "$(label "$kind"): running (PID $pid)"
+    else
+      print -r -- "$(label "$kind"): tunnel running, upstream stopped (127.0.0.1:$port)"
+    fi
   else
-    print -r -- "Chrome MCP: stopped"
+    print -r -- "$(label "$kind"): stopped"
   fi
 }
 
-status_chrome2() {
-  local pid
-  if pid=$(running_pid chrome2); then
-    print -r -- "Chrome MCP 2: running (PID $pid)"
-  else
-    print -r -- "Chrome MCP 2: stopped"
-  fi
-}
-
-status_chrome3() {
-  local pid
-  if pid=$(running_pid chrome3); then
-    print -r -- "Chrome MCP 3: running (PID $pid)"
-  else
-    print -r -- "Chrome MCP 3: stopped"
-  fi
-}
+status_chrome() { status_chrome_instance chrome; }
+status_chrome2() { status_chrome_instance chrome2; }
+status_chrome3() { status_chrome_instance chrome3; }
 
 status_playwright() {
   local pid mode
