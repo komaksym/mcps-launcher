@@ -80,6 +80,10 @@ security add-generic-password -U \
   -w
 ```
 
+For compatibility with older local setups, the second route also accepts
+`CONTROL_PLANE_API_KEY_ACCT2` as a legacy environment-variable alias; prefer
+`CONTROL_PLANE_API_KEY_2` for new configuration.
+
 An agent key is not required while the agent tunnel belongs to the same
 organization as the current profile. Add one only if that ownership changes.
 Override the service names with `MCP_LAUNCHER_KEYCHAIN_SERVICE`,

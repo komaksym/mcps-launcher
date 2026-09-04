@@ -57,15 +57,32 @@ test_keychain_key_routing() {
   assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "agent route does not receive the second key"
   run_launcher stop chrome3 >/dev/null
 
+  : > "$FAKE_TUNNEL_ENV_LOG"
+  : > "$FAKE_KEYCHAIN_LOG"
+  run_alias mcp-skills >/dev/null
+  tunnel_env=$(head -n 1 "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=main-key" "current Skills route uses the shared Keychain key"
+  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY" "current Skills route uses the established Keychain service"
+  run_launcher stop skills >/dev/null
+
+  export FAKE_KEYCHAIN_VALUE_AGENT=agent-key
+  run_alias mcp-chrome3 >/dev/null
+  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=agent-key" "agent route prefers its dedicated Keychain key"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "agent route does not fall back when its dedicated key exists"
+  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY_AGENT" "agent route uses its dedicated Keychain service"
+  run_launcher stop chrome3 >/dev/null
+
   run_alias mcp-skills2 >/dev/null
   tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
   assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "Skills second route uses its Keychain key"
-  run_launcher stop skills >/dev/null
+  run_launcher stop skills2 >/dev/null
 
   run_alias mcp-skills3 >/dev/null
   tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "Skills agent route falls back to the shared key"
-  run_launcher stop skills >/dev/null
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=agent-key" "Skills agent route uses its dedicated Keychain key"
+  run_launcher stop skills3 >/dev/null
+  unset FAKE_KEYCHAIN_VALUE_AGENT
 
   export CONTROL_PLANE_API_KEY_2=override-key
   run_alias mcp-chrome2 >/dev/null
