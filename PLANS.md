@@ -36,5 +36,63 @@ mcp-skills / mcps skills
    installer behavior through the existing shell test harness.
 2. Add the minimum server-and-tunnel orchestration needed to make those public
    behaviors pass without changing Chrome or Playwright internals.
-3. Document machine-local server and tunnel setup, then run the full repository
+ 3. Document machine-local server and tunnel setup, then run the full repository
    check before review.
+
+## Milestone — Dual Chrome MCPs: chrome2 on :2093 joins `all`
+
+## TLDR
+
+1. Scope: new `chrome2` service (tunnel profile `chrome-browser-mcp-2`,
+   loopback `:2093`) managed exactly like `chrome`; `mcps all`,
+   `stop all`, `restart all`, `status`, `logs`, and `mcp-chrome2` cover it.
+   One command starts both Chrome tunnels — no per-profile picking.
+2. Out of scope: changing `both` (stays Chrome-1 + Playwright for backward
+   compat, locked by `test_both_compatibility`); creating the second tunnel
+   profile (operator runs `tunnel-client init` once, documented in README).
+3. Deferred: per-profile Chrome auto-open (launcher still only ensures the
+   loopback ports answer; the user keeps both profiles' extensions enabled).
+
+## High-Level Flow
+
+```text
+mcps all
+  +-- chrome  ->TunnelProfile chrome-browser-mcp   -> 127.0.0.1:2091 (profile 1 bridge)
+  +-- chrome2 ->TunnelProfile chrome-browser-mcp-2 -> 127.0.0.1:2093 (profile 2 bridge)
+  +-- playwright (headless) + skills (unchanged)
+```
+
+## Milestone — Three Chrome profiles and Skills tunnel fan-out
+
+## Summary
+
+Manage three fixed Chrome bridge instances and multiple account-bound Skills
+tunnels with one shared stateless Skills server. Chrome routing is fixed by
+instance; Skills routing is fixed by tunnel profile, with every Skills tunnel
+targeting the same validated loopback service unless a separate corpus is
+explicitly configured.
+
+## System-level completion DAG
+
+```text
+mcps all
+  +--> chrome-current -> :2091 -> tunnel profile current
+  +--> chrome-new     -> :2093 -> tunnel profile new
+  +--> chrome-agent   -> :2095 -> tunnel profile agent
+  +--> skills-server  -> :2092
+          +--> skills-current tunnel -> :2092
+          +--> skills-new     tunnel -> :2092
+          +--> skills-agent   tunnel -> :2092
+```
+
+## Milestones
+
+1. Replace hardcoded Chrome-1/Chrome-2 dispatch with a validated instance
+   table; assign unique PID, log, health, tunnel profile, port, and expected
+   extension identity to each instance.
+2. Add Skills tunnel fan-out while keeping exactly one shared Skills server;
+   make readiness and stale-state checks per tunnel, not global.
+3. Use distinct runtime-key references per account/org without printing or
+   storing key material; make `status` report each route independently.
+4. Add deterministic lifecycle tests, update the installer/README, install the
+   new launcher copy, and run the complete shell check suite.

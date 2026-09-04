@@ -1,0 +1,22 @@
+{
+  "instances": [
+    {
+      "name": "chrome",
+      "port": 2091,
+      "extensionId": "jlpddlfiallighiohmhhkemgbhofpnha",
+      "tunnelProfile": "chrome-browser-mcp"
+    },
+    {
+      "name": "chrome2",
+      "port": 2093,
+      "extensionId": "doommfidfcljgehkppgiinjdjnafcmdc",
+      "tunnelProfile": "chrome-browser-mcp-2"
+    },
+    {
+      "name": "chrome3",
+      "port": 2095,
+      "extensionId": "cjfkelmiakmoanljhleaahajdichbemn",
+      "tunnelProfile": "chrome-browser-mcp-3"
+    }
+  ]
+}

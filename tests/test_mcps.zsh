@@ -80,12 +80,28 @@ test_menu_chrome_and_errors() {
   assert_contains "$(run_launcher status)" "Chrome MCP: running" "status reports Chrome"
   run_launcher stop chrome >/dev/null
 
+  run_alias mcp-chrome2 >/dev/null
+  assert_contains "$(last_invocation 2)" "--profile chrome-browser-mcp-2" "Chrome 2 alias preserves its tunnel profile"
+  assert_contains "$(run_launcher status)" "Chrome MCP 2: running" "status reports Chrome 2"
+  run_launcher stop chrome2 >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP 2: stopped" "stop clears Chrome 2"
+
+  run_alias mcp-chrome3 >/dev/null
+  assert_contains "$(last_invocation 3)" "--profile chrome-browser-mcp-3" "Chrome 3 alias preserves its tunnel profile"
+  assert_contains "$(run_launcher status)" "Chrome MCP 3: running" "status reports Chrome 3"
+  run_launcher stop chrome3 >/dev/null
+  assert_contains "$(run_launcher status)" "Chrome MCP 3: stopped" "stop clears Chrome 3"
+
   run_launcher all >/dev/null
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "all starts Chrome"
+  assert_contains "$all_args" "--profile chrome-browser-mcp-2" "all starts Chrome 2 without manual picking"
+  assert_contains "$all_args" "--profile chrome-browser-mcp-3" "all starts Chrome 3 without manual picking"
   assert_contains "$all_args" "--headless" "all selects background Playwright mode"
   [[ -f "$TEST_SANDBOX/state/chrome.log" ]] || fail "Chrome log was not created"
+  [[ -f "$TEST_SANDBOX/state/chrome2.log" ]] || fail "Chrome 2 log was not created"
+  [[ -f "$TEST_SANDBOX/state/chrome3.log" ]] || fail "Chrome 3 log was not created"
   [[ -f "$TEST_SANDBOX/state/playwright.log" ]] || fail "Playwright log was not created"
 
   run_launcher restart playwright-head >/dev/null
@@ -93,12 +109,28 @@ test_menu_chrome_and_errors() {
 
   run_launcher stop all >/dev/null
   assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop all stops Chrome"
+  assert_contains "$(run_launcher status)" "Chrome MCP 2: stopped" "stop all stops Chrome 2"
+  assert_contains "$(run_launcher status)" "Chrome MCP 3: stopped" "stop all stops Chrome 3"
   assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop all stops Playwright"
 
   run_launcher nonsense >/dev/null 2>&1
   assert_eq "$?" "2" "unknown command exits 2"
   run_launcher stop nonsense >/dev/null 2>&1
   assert_eq "$?" "2" "unknown stop target exits 2"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
+# Refuses to start a Chrome route when the bridge-installed topology is absent.
+test_chrome_topology_failures() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  export CHROME_MCP_INSTANCES_FILE="$TEST_SANDBOX/missing-instances.json"
+  run_alias mcp-chrome3 >/dev/null 2>&1
+  assert_eq "$?" "1" "missing Chrome topology exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "missing Chrome topology does not start a tunnel"
 
   cleanup_sandbox
   trap - EXIT
@@ -115,6 +147,7 @@ test_both_compatibility() {
   assert_eq "$(fake_start_count)" "2" "both starts exactly Chrome and Playwright"
   assert_contains "$both_args" "--profile chrome-browser-mcp" "both preserves Chrome"
   assert_contains "$both_args" "--profile playwright" "both preserves Playwright"
+  assert_not_contains "$both_args" "--profile chrome-browser-mcp-2" "both does not silently add Chrome 2"
   assert_not_contains "$both_args" "--profile chatgpt-chat-skills-mcp" "both does not silently add Skills"
   assert_contains "$(run_launcher status)" "Playwright MCP: running (headless" "both preserves headless Playwright mode"
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "both leaves Skills stopped"
@@ -139,15 +172,22 @@ test_skills_lifecycle() {
 
   run_alias mcp-skills >/dev/null
   assert_contains "$(< "$FAKE_SKILLS_LOG")" "$SKILLS_MCP_SERVER_ENTRY PORT=2092" "Skills alias starts the configured loopback server"
-  assert_contains "$(last_invocation 1)" "--profile chatgpt-chat-skills-mcp" "Skills uses its dedicated tunnel profile"
-  assert_contains "$(last_invocation 1)" "url=http://127.0.0.1:2092/mcp,channel=main" "Skills tunnel targets the configured loopback endpoint"
+  local skills_args
+  skills_args=$(< "$FAKE_TUNNEL_LOG")
+  assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp" "Skills uses its current-account tunnel profile"
+  assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp-2" "Skills uses its second-account tunnel profile"
+  assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp-3" "Skills uses its agent tunnel profile"
+  assert_contains "$skills_args" "url=http://127.0.0.1:2092/mcp,channel=main" "Skills tunnels target the shared loopback endpoint"
+  assert_eq "$(fake_start_count)" "3" "Skills starts one tunnel per logical session"
   assert_contains "$(run_launcher status)" "Skills MCP: running" "status reports Skills only when its lifecycle is active"
+  assert_contains "$(run_launcher status)" "Skills MCP (new subscription): running" "status reports the second Skills route"
+  assert_contains "$(run_launcher status)" "Skills MCP (agent): running" "status reports the agent Skills route"
   [[ -f "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills tunnel PID file was not created"
   [[ -f "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills server PID file was not created"
   assert_eq "$(< "$TEST_SANDBOX/state/skills-server-health.url")" "http://127.0.0.1:2092/healthz" "Skills server health URL follows the loopback convention"
 
   run_launcher skills >/dev/null
-  assert_eq "$(fake_start_count)" "1" "duplicate Skills start does not replace its tunnel"
+  assert_eq "$(fake_start_count)" "3" "duplicate Skills start does not replace its tunnels"
   assert_eq "$(wc -l < "$FAKE_SKILLS_LOG" | tr -d ' ')" "1" "duplicate Skills start does not replace its server"
 
   print -r -- "skills lifecycle log" >> "$TEST_SANDBOX/state/skills.log"
@@ -155,14 +195,22 @@ test_skills_lifecycle() {
 
   run_launcher restart skills >/dev/null
   assert_contains "$(run_launcher status)" "Skills MCP: running" "restart restores Skills lifecycle"
-  assert_eq "$(fake_start_count)" "2" "restart replaces the Skills tunnel once"
+  assert_eq "$(fake_start_count)" "6" "restart replaces all Skills tunnels once"
 
   run_launcher stop skills >/dev/null
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "stop clears Skills lifecycle"
   [[ ! -e "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills stop leaves a tunnel PID file"
+  [[ ! -e "$TEST_SANDBOX/state/skills2.pid" ]] || fail "Skills stop leaves the second tunnel PID file"
+  [[ ! -e "$TEST_SANDBOX/state/skills3.pid" ]] || fail "Skills stop leaves the agent tunnel PID file"
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills stop leaves a server PID file"
   [[ ! -e "$TEST_SANDBOX/state/skills-health.url" ]] || fail "Skills stop leaves a tunnel health URL"
   [[ ! -e "$TEST_SANDBOX/state/skills-server-health.url" ]] || fail "Skills stop leaves a server health URL"
+
+  run_alias mcp-skills2 >/dev/null
+  assert_contains "$(< "$FAKE_TUNNEL_LOG")" "--profile chatgpt-chat-skills-mcp-2" "Skills 2 alias starts its account route"
+  run_alias mcp-skills3 >/dev/null
+  assert_contains "$(< "$FAKE_TUNNEL_LOG")" "--profile chatgpt-chat-skills-mcp-3" "Skills 3 alias starts its agent route"
+  run_launcher stop skills >/dev/null
 
   sleep 30 &
   local unrelated=$!
@@ -187,7 +235,7 @@ test_skills_configured_port() {
   assert_contains "$(< "$FAKE_SKILLS_LOG")" "PORT=3092" "Skills server receives configured port"
   assert_contains "$(< "$FAKE_CURL_LOG")" "http://127.0.0.1:3092/healthz" "Skills health probe uses configured port"
   assert_eq "$(< "$TEST_SANDBOX/state/skills-server-health.url")" "http://127.0.0.1:3092/healthz" "Skills health state uses configured port"
-  assert_contains "$(last_invocation 1)" "url=http://127.0.0.1:3092/mcp,channel=main" "Skills tunnel uses configured port"
+  assert_contains "$(< "$FAKE_TUNNEL_LOG")" "url=http://127.0.0.1:3092/mcp,channel=main" "Skills tunnels use configured port"
 
   cleanup_sandbox
   trap - EXIT
@@ -202,8 +250,11 @@ test_skills_combined_startup() {
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "combined startup preserves Chrome"
+  assert_contains "$all_args" "--profile chrome-browser-mcp-2" "combined startup includes Chrome 2"
   assert_contains "$all_args" "--profile playwright" "combined startup preserves Playwright"
   assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp" "combined startup includes Skills"
+  assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp-2" "combined startup includes Skills for the second account"
+  assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp-3" "combined startup includes Skills for the agent"
   assert_contains "$(run_launcher status)" "Skills MCP: running" "combined status includes Skills"
 
   run_launcher stop all >/dev/null
@@ -217,6 +268,13 @@ test_skills_combined_startup() {
 test_skills_failures() {
   setup_sandbox
   trap cleanup_sandbox EXIT
+
+  rm -f "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-3.yaml"
+  run_launcher skills >/dev/null 2>&1
+  assert_eq "$?" "1" "missing Skills profile exits non-zero"
+  assert_eq "$(fake_start_count)" "0" "missing Skills profile does not start a child"
+  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "missing Skills profile leaves the server running"
+  touch "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-3.yaml"
 
   export FAKE_SKILLS_SERVER_EXIT=1
   run_launcher skills >/dev/null 2>&1
@@ -253,6 +311,12 @@ test_skills_failures() {
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "tunnel launch failure leaves the server running"
 
   export FAKE_TUNNEL_EXIT=0
+  export FAKE_TUNNEL_HEALTH=0
+  run_alias mcp-chrome >/dev/null 2>&1
+  assert_eq "$?" "1" "tunnel without a health URL exits non-zero"
+  [[ ! -e "$TEST_SANDBOX/state/chrome.pid" ]] || fail "unready tunnel leaves a Chrome PID"
+  export FAKE_TUNNEL_HEALTH=1
+
   run_launcher skills >/dev/null
   local tunnel_pid
   tunnel_pid=$(< "$TEST_SANDBOX/state/skills.pid")
@@ -263,7 +327,8 @@ test_skills_failures() {
     sleep 0.1
   done
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "partial lifecycle is cleaned up"
-  [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "partial cleanup leaves the server running"
+  [[ -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "partial tunnel loss should preserve the shared server"
+  run_launcher stop skills >/dev/null
 
   run_launcher skills >/dev/null
   local server_pid
@@ -313,6 +378,7 @@ case ${1:-all} in
   command_generation) test_command_generation ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
+  chrome_topology_failures) test_chrome_topology_failures ;;
   both_compatibility) test_both_compatibility ;;
   skills_lifecycle) test_skills_lifecycle ;;
   skills_configured_port) test_skills_configured_port ;;
@@ -322,6 +388,7 @@ case ${1:-all} in
     test_command_generation
     test_lifecycle
     test_menu_chrome_and_errors
+    test_chrome_topology_failures
     test_both_compatibility
     test_skills_lifecycle
     test_skills_configured_port

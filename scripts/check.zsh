@@ -19,6 +19,14 @@ readonly -a ZSH_FILES=(
 )
 
 print -r -- "CHECK syntax"
+print -r -- "CHECK launcher structure"
+typeset launcher_case_count skills_server_count
+launcher_case_count=$(rg -c '^case "\$\{0:t\}" in$' bin/mcps || true)
+skills_server_count=$(rg -c '^start_skills_server\(\) \{$' bin/mcps || true)
+[[ $launcher_case_count == 1 && $skills_server_count == 1 ]] || {
+  print -u2 -r -- "bin/mcps contains duplicated launcher sections"
+  exit 1
+}
 zsh -n "${ZSH_FILES[@]}"
 
 print -r -- "CHECK launcher"

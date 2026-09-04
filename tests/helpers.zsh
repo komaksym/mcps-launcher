@@ -40,12 +40,17 @@ setup_sandbox() {
   chmod +x "$TEST_SANDBOX/bin/curl"
   ln -s "$TEST_ROOT/bin/mcps" "$TEST_SANDBOX/bin/mcps"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome"
+  ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome2"
+  ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome3"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright-head"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright-headless"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-skills"
+  ln -s mcps "$TEST_SANDBOX/bin/mcp-skills2"
+  ln -s mcps "$TEST_SANDBOX/bin/mcp-skills3"
 
   export MCP_LAUNCHER_STATE_DIR="$TEST_SANDBOX/state"
+  export CHROME_MCP_INSTANCES_FILE="$TEST_ROOT/tests/chrome-instances.json"
   export TUNNEL_CLIENT_PROFILE_DIR="$TEST_SANDBOX/profiles"
   export TUNNEL_CLIENT_BIN="$TEST_SANDBOX/bin/tunnel-client"
   export MCP_LAUNCHER_PS_BIN="$TEST_SANDBOX/bin/ps"
@@ -57,6 +62,7 @@ setup_sandbox() {
   export SKILLS_MCP_PORT=2092
   export MCP_LAUNCHER_SKILLS_HEALTH_BIN="$TEST_SANDBOX/bin/curl"
   export MCP_LAUNCHER_SKILLS_HEALTH_ATTEMPTS=1
+  export MCP_LAUNCHER_TUNNEL_HEALTH_ATTEMPTS=1
   export MCP_LAUNCHER_LOG_FOLLOW=0
   export FAKE_TUNNEL_LOG="$TEST_SANDBOX/tunnel-args.log"
   export FAKE_SKILLS_LOG="$TEST_SANDBOX/skills-args.log"
@@ -66,7 +72,12 @@ setup_sandbox() {
   export FAKE_HEALTH_BODY='{"status":"ok"}'
   export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=0
+  export FAKE_TUNNEL_HEALTH=1
   export FAKE_SKILLS_SERVER_EXIT=0
+  local profile
+  for profile in chrome-browser-mcp chrome-browser-mcp-2 chrome-browser-mcp-3 playwright chatgpt-chat-skills-mcp chatgpt-chat-skills-mcp-2 chatgpt-chat-skills-mcp-3; do
+    touch "$TUNNEL_CLIENT_PROFILE_DIR/$profile.yaml"
+  done
   mkdir -p "$FAKE_PROCESS_DIR" "$TEST_SANDBOX/skills/dist"
   touch "$SKILLS_MCP_SERVER_ENTRY"
 }

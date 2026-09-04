@@ -24,7 +24,7 @@ while (( i <= $# )); do
 done
 
 [[ -n $pid_file ]] && print -r -- "$$" > "$pid_file"
-[[ -n $health_file ]] && print -r -- "http://127.0.0.1:54321" > "$health_file"
+[[ ${FAKE_TUNNEL_HEALTH:-1} == 1 && -n $health_file ]] && print -r -- "http://127.0.0.1:54321" > "$health_file"
 
 trap 'rm -f "$FAKE_PROCESS_DIR/$$.command"; exit 0' TERM INT
 while true; do
