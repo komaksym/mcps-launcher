@@ -320,8 +320,8 @@ has_tunnel_health_url() {
   local kind=$1 url hfile
   hfile=$(health_file "$kind")
   [[ -s $hfile ]] || return 1
-  IFS= read -r url < "$hfile" || return 1
-  [[ $url == http://127.0.0.1:* ]]
+  url=$(< "$hfile")
+  [[ -n $url && $url == http://127.0.0.1:* ]]
 }
 
 wait_for_tunnel_health() {
