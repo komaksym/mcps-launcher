@@ -377,7 +377,9 @@ load_control_plane_api_key() {
 
   [[ -n $key ]] || {
     print -u2 -r -- "Control-plane API key not found in the environment or macOS Keychain."
-    print -u2 -r -- "Store it under Keychain service $keychain_service, or export $TUNNEL_KEY_ENV."
+    print -u2 -r -- "For $kind, store it under Keychain service $keychain_service or export $TUNNEL_KEY_ENV."
+    [[ $keychain_service == "$KEYCHAIN_SERVICE" ]] || \
+      print -u2 -r -- "The route also falls back to shared Keychain service $KEYCHAIN_SERVICE."
     return 1
   }
   [[ -n $TUNNEL_KEY_ENV ]] || return 1

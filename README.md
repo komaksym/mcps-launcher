@@ -198,14 +198,12 @@ The fixed bridge mapping is current `:2091`, subscription `:2093`, and agent
 ```zsh
 tunnel-client init \
   --profile chrome-browser-mcp-2 \
-  --force \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2093/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
 
 tunnel-client init \
   --profile chrome-browser-mcp-3 \
-  --force \
   --tunnel-id '<agent-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2095/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
@@ -246,14 +244,12 @@ tunnel-client init \
 
 tunnel-client init \
   --profile chatgpt-chat-skills-mcp-2 \
-  --force \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2092/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
 
 tunnel-client init \
   --profile chatgpt-chat-skills-mcp-3 \
-  --force \
   --tunnel-id '<agent-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2092/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
@@ -264,6 +260,9 @@ tunnel identity and runtime-key reference differ. The launcher supplies the
 loopback MCP URL at runtime and removes an ambient `CONTROL_PLANE_TUNNEL_ID`
 override, so each selected profile remains the source of tunnel identity. It
 never prints profile contents or credentials.
+
+If a named profile already exists, add `--force` only when intentionally
+replacing that profile's tunnel ID or target URL.
 
 ## Runtime files
 
