@@ -81,7 +81,9 @@ setup_sandbox() {
   export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=0
   export FAKE_TUNNEL_HEALTH=1
-  export FAKE_KEYCHAIN_VALUE=ck
+  export FAKE_KEYCHAIN_VALUE=main-key
+  export FAKE_KEYCHAIN_VALUE_2=second-key
+  export FAKE_KEYCHAIN_VALUE_AGENT=""
   export FAKE_NC_STATUS=0
   export FAKE_SKILLS_SERVER_EXIT=0
   local profile

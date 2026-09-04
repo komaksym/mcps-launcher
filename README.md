@@ -45,13 +45,23 @@ repository.
 
 ### Control-plane API key
 
-The launcher reads one shared control-plane API key from the macOS Keychain
-when it starts a tunnel. This matches the existing single-profile setup and
-supports the profile references `CONTROL_PLANE_API_KEY`,
-`CONTROL_PLANE_API_KEY_2`, `CONTROL_PLANE_API_KEY_AGENT`, and the legacy
-`CONTROL_PLANE_API_KEY_ACCT2` name.
+The launcher resolves the runtime key per route from macOS Keychain. The
+default services are:
 
-Store or update the key once (the command prompts for the value):
+| Routes | Environment reference | Keychain service |
+| --- | --- | --- |
+| current Chrome/Skills and agent Chrome/Skills | `CONTROL_PLANE_API_KEY` / `CONTROL_PLANE_API_KEY_AGENT` | `CONTROL_PLANE_OPENAI_API_KEY` / optional `CONTROL_PLANE_OPENAI_API_KEY_AGENT` |
+| second Chrome/Skills | `CONTROL_PLANE_API_KEY_2` | `CONTROL_PLANE_OPENAI_API_KEY_2` |
+
+The resolution order is an explicit route environment variable, then the
+route-specific Keychain service, then the existing shared Keychain service.
+This means a one-key installation keeps working, while a tunnel owned by a
+different organization can use its own runtime key. The Keychain service name
+is only a lookup label; the key itself must have Tunnels Read and Tunnels Use
+permission for the tunnel's owning organization.
+
+The existing main/agent key remains in the established service (the command
+prompts for the value):
 
 ```zsh
 security add-generic-password -U \
@@ -60,12 +70,22 @@ security add-generic-password -U \
   -w
 ```
 
-No separate OpenAI tunnel token is needed for each profile. Each tunnel still
-needs its own unique tunnel ID, while all six routes can use this one API key.
-The launcher also accepts an already-exported alias and verifies that multiple
-aliases do not contain conflicting values. Override the Keychain lookup with
-`MCP_LAUNCHER_KEYCHAIN_SERVICE`, `MCP_LAUNCHER_KEYCHAIN_ACCOUNT`, or
-`MCP_LAUNCHER_SECURITY_BIN` when needed.
+For the second subscription, add the second account's runtime key under a
+different service. Never paste the value into this repository or shell history:
+
+```zsh
+security add-generic-password -U \
+  -a "$USER" \
+  -s "CONTROL_PLANE_OPENAI_API_KEY_2" \
+  -w
+```
+
+An agent key is not required while the agent tunnel belongs to the same
+organization as the current profile. Add one only if that ownership changes.
+Override the service names with `MCP_LAUNCHER_KEYCHAIN_SERVICE`,
+`MCP_LAUNCHER_KEYCHAIN_SERVICE_2`, or
+`MCP_LAUNCHER_KEYCHAIN_SERVICE_AGENT`; override the account or security binary
+with `MCP_LAUNCHER_KEYCHAIN_ACCOUNT` or `MCP_LAUNCHER_SECURITY_BIN`.
 
 ## Install
 
@@ -178,12 +198,14 @@ The fixed bridge mapping is current `:2091`, subscription `:2093`, and agent
 ```zsh
 tunnel-client init \
   --profile chrome-browser-mcp-2 \
+  --force \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2093/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
 
 tunnel-client init \
   --profile chrome-browser-mcp-3 \
+  --force \
   --tunnel-id '<agent-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2095/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
@@ -212,8 +234,8 @@ entry point. `SKILLS_MCP_NODE_BIN` can select a specific Node.js executable,
 and `SKILLS_MCP_PORT` overrides the loopback port `2092`.
 
 Create the dedicated machine-local profile with the tunnel ID from the OpenAI
-tunnel settings. Keep the runtime API key in your local environment; do not put
-it in this repository or shell history.
+tunnel settings. Use the Keychain services documented above for the runtime
+keys; do not put key material in this repository or shell history.
 
 ```zsh
 tunnel-client init \
@@ -224,12 +246,14 @@ tunnel-client init \
 
 tunnel-client init \
   --profile chatgpt-chat-skills-mcp-2 \
+  --force \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2092/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
 
 tunnel-client init \
   --profile chatgpt-chat-skills-mcp-3 \
+  --force \
   --tunnel-id '<agent-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2092/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
@@ -296,10 +320,11 @@ mcps logs playwright
 tunnel-client doctor --profile playwright --explain
 ```
 
-The launcher removes only `CONTROL_PLANE_TUNNEL_ID` from the child environment
-so an ambient override cannot replace the tunnel ID stored in the selected
-profile. It resolves the shared API key immediately before each tunnel child
-starts and never prints configuration values or credentials.
+The launcher removes tunnel and API-key environment overrides that could cross
+route boundaries from the child environment, so an ambient override cannot
+replace the selected profile or credential. It resolves the selected route's
+Keychain key immediately before each tunnel child starts and never prints
+configuration values or credentials.
 
 ### Spotify asks for login again
 

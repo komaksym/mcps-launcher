@@ -31,24 +31,46 @@ test_command_generation() {
   trap - EXIT
 }
 
-test_keychain_key_fanout() {
+test_keychain_key_routing() {
   setup_sandbox
   trap cleanup_sandbox EXIT
 
   run_alias mcp-chrome >/dev/null
-  local tunnel_env
+  local tunnel_env starts
   tunnel_env=$(< "$FAKE_TUNNEL_ENV_LOG")
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=ck" "Keychain key reaches the primary route"
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=ck" "Keychain key reaches the second route alias"
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=ck" "Keychain key reaches the agent route alias"
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_ACCT2=ck" "Keychain key reaches the legacy account alias"
-  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY" "launcher uses the established Keychain service"
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=main-key" "primary route uses the shared Keychain key"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "primary route does not receive the second key"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "primary route does not receive the agent key"
+  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY" "primary route uses the established Keychain service"
   run_launcher stop chrome >/dev/null
 
+  run_alias mcp-chrome2 >/dev/null
+  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "second route uses its Keychain key"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=main-key" "second route does not receive the primary key"
+  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY_2" "second route uses its dedicated Keychain service"
+  run_launcher stop chrome2 >/dev/null
+
+  run_alias mcp-chrome3 >/dev/null
+  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "agent route falls back to the shared key"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "agent route does not receive the second key"
+  run_launcher stop chrome3 >/dev/null
+
+  export CONTROL_PLANE_API_KEY_2=override-key
+  run_alias mcp-chrome2 >/dev/null
+  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=override-key" "explicit second route environment overrides Keychain"
+  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "explicit environment prevents the Keychain fallback"
+  run_launcher stop chrome2 >/dev/null
+  unset CONTROL_PLANE_API_KEY_2
+
+  starts=$(fake_start_count)
   export FAKE_KEYCHAIN_VALUE=""
-  run_alias mcp-chrome >/dev/null 2>&1
-  assert_eq "$?" "1" "missing Keychain key prevents a tunnel start"
-  assert_eq "$(fake_start_count)" "1" "missing Keychain key does not launch another tunnel"
+  export FAKE_KEYCHAIN_VALUE_2=""
+  run_alias mcp-chrome2 >/dev/null 2>&1
+  assert_eq "$?" "1" "missing route and shared keys prevent a tunnel start"
+  assert_eq "$(fake_start_count)" "$starts" "missing keys do not launch another tunnel"
 
   cleanup_sandbox
   trap - EXIT
@@ -422,7 +444,7 @@ test_skills_failures() {
 
 case ${1:-all} in
   command_generation) test_command_generation ;;
-  keychain_key_fanout) test_keychain_key_fanout ;;
+  keychain_key_routing) test_keychain_key_routing ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
   chrome_topology_failures) test_chrome_topology_failures ;;
@@ -434,7 +456,7 @@ case ${1:-all} in
   skills_failures) test_skills_failures ;;
   all)
     test_command_generation
-    test_keychain_key_fanout
+    test_keychain_key_routing
     test_lifecycle
     test_menu_chrome_and_errors
     test_chrome_topology_failures
