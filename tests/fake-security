@@ -1,0 +1,7 @@
+#!/bin/zsh
+
+set -u
+
+print -r -- "${(j: :)@}" >> "${FAKE_KEYCHAIN_LOG:?}"
+[[ -n ${FAKE_KEYCHAIN_VALUE:-} ]] || exit 1
+print -r -- "$FAKE_KEYCHAIN_VALUE"

@@ -3,6 +3,9 @@
 set -u
 
 print -r -- "${(j: :)@}" >> "${FAKE_TUNNEL_LOG:?}"
+if [[ -n ${FAKE_TUNNEL_ENV_LOG:-} ]]; then
+  print -r -- "CONTROL_PLANE_API_KEY=${CONTROL_PLANE_API_KEY:-} CONTROL_PLANE_API_KEY_2=${CONTROL_PLANE_API_KEY_2:-} CONTROL_PLANE_API_KEY_AGENT=${CONTROL_PLANE_API_KEY_AGENT:-} CONTROL_PLANE_API_KEY_ACCT2=${CONTROL_PLANE_API_KEY_ACCT2:-}" >> "$FAKE_TUNNEL_ENV_LOG"
+fi
 [[ ${FAKE_TUNNEL_EXIT:-0} == 1 ]] && exit 1
 mkdir -p "${FAKE_PROCESS_DIR:?}"
 print -r -- "$0 ${(j: :)@}" > "$FAKE_PROCESS_DIR/$$.command"

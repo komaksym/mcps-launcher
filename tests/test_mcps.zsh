@@ -31,6 +31,29 @@ test_command_generation() {
   trap - EXIT
 }
 
+test_keychain_key_fanout() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_alias mcp-chrome >/dev/null
+  local tunnel_env
+  tunnel_env=$(< "$FAKE_TUNNEL_ENV_LOG")
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=ck" "Keychain key reaches the primary route"
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=ck" "Keychain key reaches the second route alias"
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=ck" "Keychain key reaches the agent route alias"
+  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_ACCT2=ck" "Keychain key reaches the legacy account alias"
+  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY" "launcher uses the established Keychain service"
+  run_launcher stop chrome >/dev/null
+
+  export FAKE_KEYCHAIN_VALUE=""
+  run_alias mcp-chrome >/dev/null 2>&1
+  assert_eq "$?" "1" "missing Keychain key prevents a tunnel start"
+  assert_eq "$(fake_start_count)" "1" "missing Keychain key does not launch another tunnel"
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 test_lifecycle() {
   setup_sandbox
   trap cleanup_sandbox EXIT
@@ -376,6 +399,7 @@ test_skills_failures() {
 
 case ${1:-all} in
   command_generation) test_command_generation ;;
+  keychain_key_fanout) test_keychain_key_fanout ;;
   lifecycle) test_lifecycle ;;
   menu_chrome_and_errors) test_menu_chrome_and_errors ;;
   chrome_topology_failures) test_chrome_topology_failures ;;
@@ -386,6 +410,7 @@ case ${1:-all} in
   skills_failures) test_skills_failures ;;
   all)
     test_command_generation
+    test_keychain_key_fanout
     test_lifecycle
     test_menu_chrome_and_errors
     test_chrome_topology_failures

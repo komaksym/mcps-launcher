@@ -34,10 +34,12 @@ setup_sandbox() {
   cp "$TEST_ROOT/tests/fake-ps" "$TEST_SANDBOX/bin/ps"
   cp "$TEST_ROOT/tests/fake-skills-server" "$TEST_SANDBOX/bin/skills-server"
   cp "$TEST_ROOT/tests/fake-curl" "$TEST_SANDBOX/bin/curl"
+  cp "$TEST_ROOT/tests/fake-security" "$TEST_SANDBOX/bin/security"
   chmod +x "$TEST_SANDBOX/bin/tunnel-client"
   chmod +x "$TEST_SANDBOX/bin/ps"
   chmod +x "$TEST_SANDBOX/bin/skills-server"
   chmod +x "$TEST_SANDBOX/bin/curl"
+  chmod +x "$TEST_SANDBOX/bin/security"
   ln -s "$TEST_ROOT/bin/mcps" "$TEST_SANDBOX/bin/mcps"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome2"
@@ -54,6 +56,7 @@ setup_sandbox() {
   export TUNNEL_CLIENT_PROFILE_DIR="$TEST_SANDBOX/profiles"
   export TUNNEL_CLIENT_BIN="$TEST_SANDBOX/bin/tunnel-client"
   export MCP_LAUNCHER_PS_BIN="$TEST_SANDBOX/bin/ps"
+  export MCP_LAUNCHER_SECURITY_BIN="$TEST_SANDBOX/bin/security"
   export MCP_LAUNCHER_STARTUP_WAIT=0.5
   export MCP_LAUNCHER_SKIP_CHROME_OPEN=1
   export PLAYWRIGHT_MCP_USER_DATA_DIR="$TEST_SANDBOX/.playwright-spotify"
@@ -65,6 +68,8 @@ setup_sandbox() {
   export MCP_LAUNCHER_TUNNEL_HEALTH_ATTEMPTS=1
   export MCP_LAUNCHER_LOG_FOLLOW=0
   export FAKE_TUNNEL_LOG="$TEST_SANDBOX/tunnel-args.log"
+  export FAKE_TUNNEL_ENV_LOG="$TEST_SANDBOX/tunnel-env.log"
+  export FAKE_KEYCHAIN_LOG="$TEST_SANDBOX/keychain.log"
   export FAKE_SKILLS_LOG="$TEST_SANDBOX/skills-args.log"
   export FAKE_CURL_LOG="$TEST_SANDBOX/curl-args.log"
   export FAKE_PROCESS_DIR="$TEST_SANDBOX/processes"
@@ -73,8 +78,10 @@ setup_sandbox() {
   export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=0
   export FAKE_TUNNEL_HEALTH=1
+  export FAKE_KEYCHAIN_VALUE=ck
   export FAKE_SKILLS_SERVER_EXIT=0
   local profile
+  unset CONTROL_PLANE_API_KEY CONTROL_PLANE_API_KEY_2 CONTROL_PLANE_API_KEY_AGENT CONTROL_PLANE_API_KEY_ACCT2
   for profile in chrome-browser-mcp chrome-browser-mcp-2 chrome-browser-mcp-3 playwright chatgpt-chat-skills-mcp chatgpt-chat-skills-mcp-2 chatgpt-chat-skills-mcp-3; do
     touch "$TUNNEL_CLIENT_PROFILE_DIR/$profile.yaml"
   done

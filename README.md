@@ -42,6 +42,30 @@ repository.
   `CHROME_MCP_INSTANCES_FILE` override
 - a built checkout of `chatgpt-chat-skills-mcp` (Node.js 20 or newer)
 
+### Control-plane API key
+
+The launcher reads one shared control-plane API key from the macOS Keychain
+when it starts a tunnel. This matches the existing single-profile setup and
+supports the profile references `CONTROL_PLANE_API_KEY`,
+`CONTROL_PLANE_API_KEY_2`, `CONTROL_PLANE_API_KEY_AGENT`, and the legacy
+`CONTROL_PLANE_API_KEY_ACCT2` name.
+
+Store or update the key once (the command prompts for the value):
+
+```zsh
+security add-generic-password -U \
+  -a "$USER" \
+  -s "CONTROL_PLANE_OPENAI_API_KEY" \
+  -w
+```
+
+No separate OpenAI tunnel token is needed for each profile. Each tunnel still
+needs its own unique tunnel ID, while all six routes can use this one API key.
+The launcher also accepts an already-exported alias and verifies that multiple
+aliases do not contain conflicting values. Override the Keychain lookup with
+`MCP_LAUNCHER_KEYCHAIN_SERVICE`, `MCP_LAUNCHER_KEYCHAIN_ACCOUNT`, or
+`MCP_LAUNCHER_SECURITY_BIN` when needed.
+
 ## Install
 
 ```zsh
@@ -265,7 +289,8 @@ tunnel-client doctor --profile playwright --explain
 
 The launcher removes only `CONTROL_PLANE_TUNNEL_ID` from the child environment
 so an ambient override cannot replace the tunnel ID stored in the selected
-profile. It never prints configuration values.
+profile. It resolves the shared API key immediately before each tunnel child
+starts and never prints configuration values or credentials.
 
 ### Spotify asks for login again
 

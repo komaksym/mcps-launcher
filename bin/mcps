@@ -8,6 +8,9 @@ readonly STATE_DIR="${MCP_LAUNCHER_STATE_DIR:-$HOME/.local/state/mcp-launcher}"
 readonly PROFILE_DIR="${TUNNEL_CLIENT_PROFILE_DIR:-$HOME/.config/tunnel-client}"
 readonly TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-/usr/local/bin/tunnel-client}"
 readonly PS_BIN="${MCP_LAUNCHER_PS_BIN:-/bin/ps}"
+readonly KEYCHAIN_SERVICE="${MCP_LAUNCHER_KEYCHAIN_SERVICE:-CONTROL_PLANE_OPENAI_API_KEY}"
+readonly KEYCHAIN_ACCOUNT="${MCP_LAUNCHER_KEYCHAIN_ACCOUNT:-${USER:-$(id -un)}}"
+readonly KEYCHAIN_SECURITY_BIN="${MCP_LAUNCHER_SECURITY_BIN:-$(command -v security 2>/dev/null || true)}"
 readonly STARTUP_WAIT="${MCP_LAUNCHER_STARTUP_WAIT:-1}"
 readonly PLAYWRIGHT_USER_DATA_DIR="${PLAYWRIGHT_MCP_USER_DATA_DIR:-$HOME/.playwright-spotify}"
 readonly SKILLS_NODE_BIN="${SKILLS_MCP_NODE_BIN-$(command -v node 2>/dev/null || true)}"
@@ -305,11 +308,42 @@ wait_for_tunnel_health() {
   return 1
 }
 
+# Resolves one control-plane key and exposes it under every supported profile alias.
+load_control_plane_api_key() {
+  local key="${CONTROL_PLANE_API_KEY:-}" candidate
+
+  for candidate in "${CONTROL_PLANE_API_KEY_2:-}" \
+    "${CONTROL_PLANE_API_KEY_AGENT:-}" "${CONTROL_PLANE_API_KEY_ACCT2:-}"; do
+    [[ -z $candidate ]] && continue
+    if [[ -n $key && $key != "$candidate" ]]; then
+      print -u2 -r -- "Conflicting control-plane API keys are configured; use one shared key."
+      return 1
+    fi
+    key=$candidate
+  done
+
+  if [[ -z $key && -n $KEYCHAIN_SECURITY_BIN && -x $KEYCHAIN_SECURITY_BIN ]]; then
+    key=$("$KEYCHAIN_SECURITY_BIN" find-generic-password \
+      -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) || key=""
+  fi
+  [[ -n $key ]] || {
+    print -u2 -r -- "Control-plane API key not found in the environment or macOS Keychain."
+    print -u2 -r -- "Store it under Keychain service $KEYCHAIN_SERVICE, or export CONTROL_PLANE_API_KEY."
+    return 1
+  }
+
+  export CONTROL_PLANE_API_KEY="$key"
+  export CONTROL_PLANE_API_KEY_2="$key"
+  export CONTROL_PLANE_API_KEY_AGENT="$key"
+  export CONTROL_PLANE_API_KEY_ACCT2="$key"
+}
+
 # Runs the shared tunnel-client lifecycle and prints the managed PID on success.
 start_tunnel() {
   local kind=$1 failure_name=$2 pid pfile logfile hfile child
   shift 2
   require_tunnel_profile "$kind" || return 1
+  load_control_plane_api_key || return 1
   pfile=$(pid_file "$kind")
   logfile=$(log_file "$kind")
   hfile=$(health_file "$kind")
