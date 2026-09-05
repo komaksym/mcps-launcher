@@ -51,12 +51,6 @@ test_keychain_key_routing() {
   assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY_2" "second route uses its dedicated Keychain service"
   run_launcher stop chrome2 >/dev/null
 
-  run_alias mcp-chrome3 >/dev/null
-  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "agent route falls back to the shared key"
-  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "agent route does not receive the second key"
-  run_launcher stop chrome3 >/dev/null
-
   : > "$FAKE_TUNNEL_ENV_LOG"
   : > "$FAKE_KEYCHAIN_LOG"
   run_alias mcp-skills >/dev/null
@@ -64,14 +58,6 @@ test_keychain_key_routing() {
   assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY=main-key" "current Skills route uses the shared Keychain key"
   assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY" "current Skills route uses the established Keychain service"
   run_launcher stop skills >/dev/null
-
-  export FAKE_KEYCHAIN_VALUE_AGENT=agent-key
-  run_alias mcp-chrome3 >/dev/null
-  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=agent-key" "agent route prefers its dedicated Keychain key"
-  assert_not_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=main-key" "agent route does not fall back when its dedicated key exists"
-  assert_contains "$(< "$FAKE_KEYCHAIN_LOG")" "-s CONTROL_PLANE_OPENAI_API_KEY_AGENT" "agent route uses its dedicated Keychain service"
-  run_launcher stop chrome3 >/dev/null
 
   export FAKE_KEYCHAIN_VALUE_2=""
   run_alias mcp-chrome2 >/dev/null
@@ -90,12 +76,6 @@ test_keychain_key_routing() {
   tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
   assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_2=second-key" "Skills second route uses its Keychain key"
   run_launcher stop skills2 >/dev/null
-
-  run_alias mcp-skills3 >/dev/null
-  tunnel_env=$(tail -n 1 "$FAKE_TUNNEL_ENV_LOG")
-  assert_contains "$tunnel_env" "CONTROL_PLANE_API_KEY_AGENT=agent-key" "Skills agent route uses its dedicated Keychain key"
-  run_launcher stop skills3 >/dev/null
-  unset FAKE_KEYCHAIN_VALUE_AGENT
 
   export CONTROL_PLANE_API_KEY_2=override-key
   run_alias mcp-chrome2 >/dev/null
@@ -171,22 +151,14 @@ test_menu_chrome_and_errors() {
   run_launcher stop chrome2 >/dev/null
   assert_contains "$(run_launcher status)" "Chrome MCP 2: stopped" "stop clears Chrome 2"
 
-  run_alias mcp-chrome3 >/dev/null
-  assert_contains "$(last_invocation 3)" "--profile chrome-browser-mcp-3" "Chrome 3 alias preserves its tunnel profile"
-  assert_contains "$(run_launcher status)" "Chrome MCP 3: running" "status reports Chrome 3"
-  run_launcher stop chrome3 >/dev/null
-  assert_contains "$(run_launcher status)" "Chrome MCP 3: stopped" "stop clears Chrome 3"
-
   run_launcher all >/dev/null
   local all_args
   all_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$all_args" "--profile chrome-browser-mcp" "all starts Chrome"
   assert_contains "$all_args" "--profile chrome-browser-mcp-2" "all starts Chrome 2 without manual picking"
-  assert_contains "$all_args" "--profile chrome-browser-mcp-3" "all starts Chrome 3 without manual picking"
   assert_contains "$all_args" "--headless" "all selects background Playwright mode"
   [[ -f "$TEST_SANDBOX/state/chrome.log" ]] || fail "Chrome log was not created"
   [[ -f "$TEST_SANDBOX/state/chrome2.log" ]] || fail "Chrome 2 log was not created"
-  [[ -f "$TEST_SANDBOX/state/chrome3.log" ]] || fail "Chrome 3 log was not created"
   [[ -f "$TEST_SANDBOX/state/playwright.log" ]] || fail "Playwright log was not created"
 
   run_launcher restart playwright-head >/dev/null
@@ -195,7 +167,6 @@ test_menu_chrome_and_errors() {
   run_launcher stop all >/dev/null
   assert_contains "$(run_launcher status)" "Chrome MCP: stopped" "stop all stops Chrome"
   assert_contains "$(run_launcher status)" "Chrome MCP 2: stopped" "stop all stops Chrome 2"
-  assert_contains "$(run_launcher status)" "Chrome MCP 3: stopped" "stop all stops Chrome 3"
   assert_contains "$(run_launcher status)" "Playwright MCP: stopped" "stop all stops Playwright"
 
   run_launcher nonsense >/dev/null 2>&1
@@ -213,7 +184,7 @@ test_chrome_topology_failures() {
   trap cleanup_sandbox EXIT
 
   export CHROME_MCP_INSTANCES_FILE="$TEST_SANDBOX/missing-instances.json"
-  run_alias mcp-chrome3 >/dev/null 2>&1
+  run_alias mcp-chrome >/dev/null 2>&1
   assert_eq "$?" "1" "missing Chrome topology exits non-zero"
   assert_eq "$(fake_start_count)" "0" "missing Chrome topology does not start a tunnel"
 
@@ -284,18 +255,16 @@ test_skills_lifecycle() {
   skills_args=$(< "$FAKE_TUNNEL_LOG")
   assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp" "Skills uses its current-account tunnel profile"
   assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp-2" "Skills uses its second-account tunnel profile"
-  assert_contains "$skills_args" "--profile chatgpt-chat-skills-mcp-3" "Skills uses its agent tunnel profile"
   assert_contains "$skills_args" "url=http://127.0.0.1:2092/mcp,channel=main" "Skills tunnels target the shared loopback endpoint"
-  assert_eq "$(fake_start_count)" "3" "Skills starts one tunnel per logical session"
+  assert_eq "$(fake_start_count)" "2" "Skills starts one tunnel per logical session"
   assert_contains "$(run_launcher status)" "Skills MCP: running" "status reports Skills only when its lifecycle is active"
   assert_contains "$(run_launcher status)" "Skills MCP (new subscription): running" "status reports the second Skills route"
-  assert_contains "$(run_launcher status)" "Skills MCP (agent): running" "status reports the agent Skills route"
   [[ -f "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills tunnel PID file was not created"
   [[ -f "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills server PID file was not created"
   assert_eq "$(< "$TEST_SANDBOX/state/skills-server-health.url")" "http://127.0.0.1:2092/healthz" "Skills server health URL follows the loopback convention"
 
   run_launcher skills >/dev/null
-  assert_eq "$(fake_start_count)" "3" "duplicate Skills start does not replace its tunnels"
+  assert_eq "$(fake_start_count)" "2" "duplicate Skills start does not replace its tunnels"
   assert_eq "$(wc -l < "$FAKE_SKILLS_LOG" | tr -d ' ')" "1" "duplicate Skills start does not replace its server"
 
   print -r -- "skills lifecycle log" >> "$TEST_SANDBOX/state/skills.log"
@@ -303,21 +272,18 @@ test_skills_lifecycle() {
 
   run_launcher restart skills >/dev/null
   assert_contains "$(run_launcher status)" "Skills MCP: running" "restart restores Skills lifecycle"
-  assert_eq "$(fake_start_count)" "6" "restart replaces all Skills tunnels once"
+  assert_eq "$(fake_start_count)" "4" "restart replaces all Skills tunnels once"
 
   run_launcher stop skills >/dev/null
   assert_contains "$(run_launcher status)" "Skills MCP: stopped" "stop clears Skills lifecycle"
   [[ ! -e "$TEST_SANDBOX/state/skills.pid" ]] || fail "Skills stop leaves a tunnel PID file"
   [[ ! -e "$TEST_SANDBOX/state/skills2.pid" ]] || fail "Skills stop leaves the second tunnel PID file"
-  [[ ! -e "$TEST_SANDBOX/state/skills3.pid" ]] || fail "Skills stop leaves the agent tunnel PID file"
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "Skills stop leaves a server PID file"
   [[ ! -e "$TEST_SANDBOX/state/skills-health.url" ]] || fail "Skills stop leaves a tunnel health URL"
   [[ ! -e "$TEST_SANDBOX/state/skills-server-health.url" ]] || fail "Skills stop leaves a server health URL"
 
   run_alias mcp-skills2 >/dev/null
   assert_contains "$(< "$FAKE_TUNNEL_LOG")" "--profile chatgpt-chat-skills-mcp-2" "Skills 2 alias starts its account route"
-  run_alias mcp-skills3 >/dev/null
-  assert_contains "$(< "$FAKE_TUNNEL_LOG")" "--profile chatgpt-chat-skills-mcp-3" "Skills 3 alias starts its agent route"
   run_launcher stop skills >/dev/null
 
   sleep 30 &
@@ -362,7 +328,6 @@ test_skills_combined_startup() {
   assert_contains "$all_args" "--profile playwright" "combined startup preserves Playwright"
   assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp" "combined startup includes Skills"
   assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp-2" "combined startup includes Skills for the second account"
-  assert_contains "$all_args" "--profile chatgpt-chat-skills-mcp-3" "combined startup includes Skills for the agent"
   assert_contains "$(run_launcher status)" "Skills MCP: running" "combined status includes Skills"
 
   run_launcher stop all >/dev/null
@@ -377,12 +342,12 @@ test_skills_failures() {
   setup_sandbox
   trap cleanup_sandbox EXIT
 
-  rm -f "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-3.yaml"
+  rm -f "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-2.yaml"
   run_launcher skills >/dev/null 2>&1
   assert_eq "$?" "1" "missing Skills profile exits non-zero"
   assert_eq "$(fake_start_count)" "0" "missing Skills profile does not start a child"
   [[ ! -e "$TEST_SANDBOX/state/skills-server.pid" ]] || fail "missing Skills profile leaves the server running"
-  touch "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-3.yaml"
+  touch "$TEST_SANDBOX/profiles/chatgpt-chat-skills-mcp-2.yaml"
 
   export FAKE_SKILLS_SERVER_EXIT=1
   run_launcher skills >/dev/null 2>&1
@@ -482,6 +447,68 @@ test_skills_failures() {
   trap - EXIT
 }
 
+# Verifies the launcher exposes exactly the primary and second-profile routes.
+test_two_profile_topology() {
+  setup_sandbox
+  trap cleanup_sandbox EXIT
+
+  run_launcher all >/dev/null
+  local all_args topo_status
+  all_args=$(< "$FAKE_TUNNEL_LOG")
+  assert_not_contains "$all_args" "chrome-browser-mcp-3" "combined startup never references the retired agent Chrome profile"
+  assert_not_contains "$all_args" "chatgpt-chat-skills-mcp-3" "combined startup never references the retired agent Skills profile"
+  topo_status=$(run_launcher status)
+  assert_contains "$topo_status" "Chrome MCP: running" "status reports the primary Chrome route"
+  assert_contains "$topo_status" "Chrome MCP 2: running" "status reports the second Chrome route"
+  assert_contains "$topo_status" "Skills MCP (current): running" "status reports the current Skills route"
+  assert_contains "$topo_status" "Skills MCP (new subscription): running" "status reports the second Skills route"
+  assert_not_contains "$topo_status" "Chrome MCP 3" "status never reports the retired agent Chrome route"
+  assert_not_contains "$topo_status" "agent" "status never reports the retired agent Skills route"
+  run_launcher stop all >/dev/null
+
+  run_launcher chrome3 >/dev/null 2>&1
+  assert_eq "$?" "2" "retired Chrome agent route exits 2"
+  run_launcher skills3 >/dev/null 2>&1
+  assert_eq "$?" "2" "retired Skills agent route exits 2"
+  run_launcher stop chrome3 >/dev/null 2>&1
+  assert_eq "$?" "2" "retired Chrome agent stop target exits 2"
+
+  # A stale installed topology that still lists the retired agent record
+  # must not break the preserved routes.
+  cat > "$TEST_SANDBOX/stale-instances.json" <<'JSON'
+{
+  "instances": [
+    {
+      "name": "chrome",
+      "port": 2091,
+      "extensionId": "jlpddlfiallighiohmhhkemgbhofpnha",
+      "tunnelProfile": "chrome-browser-mcp"
+    },
+    {
+      "name": "chrome2",
+      "port": 2093,
+      "extensionId": "doommfidfcljgehkppgiinjdjnafcmdc",
+      "tunnelProfile": "chrome-browser-mcp-2"
+    },
+    {
+      "name": "chrome3",
+      "port": 2095,
+      "extensionId": "cjfkelmiakmoanljhleaahajdichbemn",
+      "tunnelProfile": "chrome-browser-mcp-3"
+    }
+  ]
+}
+JSON
+  export CHROME_MCP_INSTANCES_FILE="$TEST_SANDBOX/stale-instances.json"
+  run_alias mcp-chrome >/dev/null
+  assert_contains "$(last_invocation 1)" "--profile chrome-browser-mcp" "primary route works with a stale topology file"
+  assert_contains "$(run_launcher status)" "Chrome MCP: running" "status works with a stale topology file"
+  run_launcher stop chrome >/dev/null
+
+  cleanup_sandbox
+  trap - EXIT
+}
+
 case ${1:-all} in
   command_generation) test_command_generation ;;
   keychain_key_routing) test_keychain_key_routing ;;
@@ -494,6 +521,7 @@ case ${1:-all} in
   skills_configured_port) test_skills_configured_port ;;
   skills_combined_startup) test_skills_combined_startup ;;
   skills_failures) test_skills_failures ;;
+  two_profile_topology) test_two_profile_topology ;;
   all)
     test_command_generation
     test_keychain_key_routing
@@ -506,6 +534,7 @@ case ${1:-all} in
     test_skills_configured_port
     test_skills_combined_startup
     test_skills_failures
+    test_two_profile_topology
     ;;
   *) print -u2 -r -- "Unknown test group: $1"; exit 2 ;;
 esac
