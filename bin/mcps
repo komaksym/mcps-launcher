@@ -9,6 +9,7 @@ readonly PROFILE_DIR="${TUNNEL_CLIENT_PROFILE_DIR:-$HOME/.config/tunnel-client}"
 readonly TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-/usr/local/bin/tunnel-client}"
 readonly PS_BIN="${MCP_LAUNCHER_PS_BIN:-/bin/ps}"
 readonly KEYCHAIN_SERVICE="${MCP_LAUNCHER_KEYCHAIN_SERVICE:-CONTROL_PLANE_OPENAI_API_KEY}"
+readonly KEYCHAIN_SERVICE_2="${MCP_LAUNCHER_KEYCHAIN_SERVICE_2:-CONTROL_PLANE_OPENAI_API_KEY_2}"
 readonly KEYCHAIN_ACCOUNT="${MCP_LAUNCHER_KEYCHAIN_ACCOUNT:-${USER:-$(id -un)}}"
 readonly KEYCHAIN_SECURITY_BIN="${MCP_LAUNCHER_SECURITY_BIN:-$(command -v security 2>/dev/null || true)}"
 readonly STARTUP_WAIT="${MCP_LAUNCHER_STARTUP_WAIT:-1}"
@@ -18,79 +19,81 @@ readonly SKILLS_SERVER_ENTRY="${SKILLS_MCP_SERVER_ENTRY:-$HOME/.local/share/chat
 readonly SKILLS_PORT="${SKILLS_MCP_PORT:-2092}"
 readonly SKILLS_PROFILE="${SKILLS_MCP_PROFILE:-chatgpt-chat-skills-mcp}"
 readonly SKILLS_PROFILE_2="${SKILLS_MCP_PROFILE_2:-chatgpt-chat-skills-mcp-2}"
-readonly SKILLS_PROFILE_3="${SKILLS_MCP_PROFILE_3:-chatgpt-chat-skills-mcp-3}"
 readonly SKILLS_HEALTH_BIN="${MCP_LAUNCHER_SKILLS_HEALTH_BIN:-$(command -v curl 2>/dev/null || true)}"
 readonly SKILLS_HEALTH_ATTEMPTS="${MCP_LAUNCHER_SKILLS_HEALTH_ATTEMPTS:-20}"
 readonly CHROME_PROBE_BIN="${MCP_LAUNCHER_CHROME_PROBE_BIN:-$(command -v nc 2>/dev/null || true)}"
 readonly TUNNEL_HEALTH_ATTEMPTS="${MCP_LAUNCHER_TUNNEL_HEALTH_ATTEMPTS:-20}"
 readonly CHROME_INSTANCES_FILE="${CHROME_MCP_INSTANCES_FILE:-$HOME/Library/Application Support/Chrome Browser MCP/instances.json}"
 readonly TOPOLOGY_NODE_BIN="${MCP_LAUNCHER_TOPOLOGY_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
-readonly -a CHROME_INSTANCE_KINDS=(chrome chrome2 chrome3)
-readonly -a SKILLS_TUNNEL_KINDS=(skills skills2 skills3)
+readonly -a CHROME_INSTANCE_KINDS=(chrome chrome2)
+readonly -a SKILLS_TUNNEL_KINDS=(skills skills2)
 
 typeset -Ar SERVICE_LABELS=(
   chrome "Chrome MCP"
   chrome2 "Chrome MCP 2"
-  chrome3 "Chrome MCP 3"
   playwright "Playwright MCP"
   skills "Skills MCP (current)"
   skills2 "Skills MCP (new subscription)"
-  skills3 "Skills MCP (agent)"
   skills-server "Skills MCP server"
 )
 typeset -A TUNNEL_PROFILES=(
   playwright playwright
   skills "$SKILLS_PROFILE"
   skills2 "$SKILLS_PROFILE_2"
-  skills3 "$SKILLS_PROFILE_3"
+)
+typeset -Ar KEY_ENV_BY_KIND=(
+  chrome CONTROL_PLANE_API_KEY
+  chrome2 CONTROL_PLANE_API_KEY_2
+  playwright CONTROL_PLANE_API_KEY
+  skills CONTROL_PLANE_API_KEY
+  skills2 CONTROL_PLANE_API_KEY_2
+)
+typeset -Ar KEYCHAIN_SERVICE_BY_KIND=(
+  chrome "$KEYCHAIN_SERVICE"
+  chrome2 "$KEYCHAIN_SERVICE_2"
+  playwright "$KEYCHAIN_SERVICE"
+  skills "$KEYCHAIN_SERVICE"
+  skills2 "$KEYCHAIN_SERVICE_2"
 )
 typeset -A CHROME_PORTS CHROME_EXTENSION_IDS
 typeset -i CHROME_TOPOLOGY_LOADED=0
 typeset -Ar START_ACTIONS=(
   chrome start_chrome
   chrome2 start_chrome2
-  chrome3 start_chrome3
   playwright start_playwright_headless
   playwright-headless start_playwright_headless
   playwright-head start_playwright_head
   skills start_skills
   skills2 start_skills2
-  skills3 start_skills3
   both start_both
   all start_all
 )
 typeset -Ar STOP_KINDS=(
   chrome "chrome"
   chrome2 "chrome2"
-  chrome3 "chrome3"
   playwright "playwright"
-  skills "skills skills2 skills3 skills-server"
+  skills "skills skills2 skills-server"
   skills2 "skills2"
-  skills3 "skills3"
   both "chrome playwright"
-  all "chrome chrome2 chrome3 playwright skills skills2 skills3 skills-server"
+  all "chrome chrome2 playwright skills skills2 skills-server"
 )
 typeset -Ar RESTART_STOP_TARGETS=(
   chrome chrome
   chrome2 chrome2
-  chrome3 chrome3
   playwright playwright
   playwright-headless playwright
   playwright-head playwright
   skills skills
   skills2 skills2
-  skills3 skills3
   both both
   all all
 )
 typeset -Ar LOG_TARGETS=(
   chrome 1
   chrome2 1
-  chrome3 1
   playwright 1
   skills 1
   skills2 1
-  skills3 1
 )
 
 mkdir -p "$STATE_DIR" || exit 1
@@ -144,7 +147,13 @@ NODE
       print -u2 -r -- "Chrome MCP topology contains an incomplete instance record."
       return 1
     }
-    [[ $name == chrome || $name == chrome2 || $name == chrome3 ]] || {
+    [[ $name == chrome || $name == chrome2 ]] || {
+      # Tolerate the retired agent record until chrome-browser-mcp is
+      # reinstalled from its two-profile branch; it maps to no route.
+      if [[ $name == chrome3 ]]; then
+        print -u2 -r -- "Ignoring retired Chrome MCP topology instance: $name"
+        continue
+      fi
       print -u2 -r -- "Chrome MCP topology contains an unknown instance: $name"
       return 1
     }
@@ -193,7 +202,7 @@ process_matches() {
     [[ $command == *"$SKILLS_NODE_BIN"* && $command == *"$SKILLS_SERVER_ENTRY"* ]]
     return
   fi
-  if [[ $kind == chrome || $kind == chrome2 || $kind == chrome3 ]]; then
+  if [[ $kind == chrome || $kind == chrome2 ]]; then
     load_chrome_topology >/dev/null 2>&1 || return 1
   fi
   expected=${TUNNEL_PROFILES[$kind]:-}
@@ -280,7 +289,7 @@ chrome_bridge_ready() {
 # Requires a machine-local tunnel profile before starting any child process.
 require_tunnel_profile() {
   local kind=$1 profile=${TUNNEL_PROFILES[$1]:-}
-  if [[ $kind == chrome || $kind == chrome2 || $kind == chrome3 ]]; then
+  if [[ $kind == chrome || $kind == chrome2 ]]; then
     load_chrome_topology || return 1
     profile=${TUNNEL_PROFILES[$kind]:-}
   fi
@@ -300,8 +309,8 @@ has_tunnel_health_url() {
   local kind=$1 url hfile
   hfile=$(health_file "$kind")
   [[ -s $hfile ]] || return 1
-  IFS= read -r url < "$hfile" || return 1
-  [[ $url == http://127.0.0.1:* ]]
+  url=$(< "$hfile")
+  [[ -n $url && $url == http://127.0.0.1:* ]]
 }
 
 wait_for_tunnel_health() {
@@ -316,49 +325,66 @@ wait_for_tunnel_health() {
   return 1
 }
 
-# Resolves one control-plane key and exposes it under every supported profile alias.
+# Resolves the key for one route without exposing unrelated credentials to its child.
 load_control_plane_api_key() {
-  local key="${CONTROL_PLANE_API_KEY:-}" candidate
+  local kind=$1 key="" keychain_service="${KEYCHAIN_SERVICE_BY_KIND[$1]:-}"
+  local shared_key="${CONTROL_PLANE_API_KEY:-}"
+  typeset -g TUNNEL_KEY_ENV="${KEY_ENV_BY_KIND[$kind]:-}"
+  typeset -g TUNNEL_KEY_VALUE=""
 
-  for candidate in "${CONTROL_PLANE_API_KEY_2:-}" \
-    "${CONTROL_PLANE_API_KEY_AGENT:-}" "${CONTROL_PLANE_API_KEY_ACCT2:-}"; do
-    [[ -z $candidate ]] && continue
-    if [[ -n $key && $key != "$candidate" ]]; then
-      print -u2 -r -- "Conflicting control-plane API keys are configured; use one shared key."
+  case $kind in
+    chrome2|skills2)
+      key="${CONTROL_PLANE_API_KEY_2:-}"
+      [[ -n $key ]] || key="${CONTROL_PLANE_API_KEY_ACCT2:-}"
+      if [[ -z $key && -n $KEYCHAIN_SECURITY_BIN && -x $KEYCHAIN_SECURITY_BIN ]]; then
+        key=$("$KEYCHAIN_SECURITY_BIN" find-generic-password \
+          -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE_2" -w 2>/dev/null) || key=""
+      fi
+      [[ -n $key ]] || key=$shared_key
+      ;;
+    chrome|playwright|skills)
+      key=$shared_key
+      ;;
+    *)
+      print -u2 -r -- "Unknown tunnel route: $kind"
       return 1
-    fi
-    key=$candidate
-  done
+      ;;
+  esac
 
   if [[ -z $key && -n $KEYCHAIN_SECURITY_BIN && -x $KEYCHAIN_SECURITY_BIN ]]; then
     key=$("$KEYCHAIN_SECURITY_BIN" find-generic-password \
       -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) || key=""
   fi
+
   [[ -n $key ]] || {
     print -u2 -r -- "Control-plane API key not found in the environment or macOS Keychain."
-    print -u2 -r -- "Store it under Keychain service $KEYCHAIN_SERVICE, or export CONTROL_PLANE_API_KEY."
+    print -u2 -r -- "For $kind, store it under Keychain service $keychain_service or export $TUNNEL_KEY_ENV."
+    [[ $keychain_service == "$KEYCHAIN_SERVICE" ]] || \
+      print -u2 -r -- "The route also falls back to shared Keychain service $KEYCHAIN_SERVICE."
     return 1
   }
-
-  export CONTROL_PLANE_API_KEY="$key"
-  export CONTROL_PLANE_API_KEY_2="$key"
-  export CONTROL_PLANE_API_KEY_AGENT="$key"
-  export CONTROL_PLANE_API_KEY_ACCT2="$key"
+  [[ -n $TUNNEL_KEY_ENV ]] || return 1
+  TUNNEL_KEY_VALUE=$key
 }
 
 # Runs the shared tunnel-client lifecycle and prints the managed PID on success.
 start_tunnel() {
-  local kind=$1 failure_name=$2 pid pfile logfile hfile child
+  local kind=$1 failure_name=$2 pid pfile logfile hfile child key_env key
   shift 2
   require_tunnel_profile "$kind" || return 1
-  load_control_plane_api_key || return 1
+  load_control_plane_api_key "$kind" || return 1
+  key_env=$TUNNEL_KEY_ENV
+  key=$TUNNEL_KEY_VALUE
   pfile=$(pid_file "$kind")
   logfile=$(log_file "$kind")
   hfile=$(health_file "$kind")
   : >> "$logfile"
   rm -f "$pfile" "$hfile"
 
-  nohup env -u CONTROL_PLANE_TUNNEL_ID "$TUNNEL_BIN" run "$@" \
+  nohup env -u CONTROL_PLANE_TUNNEL_ID \
+    -u CONTROL_PLANE_API_KEY -u CONTROL_PLANE_API_KEY_2 \
+    -u CONTROL_PLANE_API_KEY_AGENT -u CONTROL_PLANE_API_KEY_ACCT2 \
+    "$key_env=$key" "$TUNNEL_BIN" run "$@" \
     --profile-dir "$PROFILE_DIR" \
     --pid.file "$pfile" \
     --log.file "$logfile" \
@@ -424,10 +450,6 @@ start_chrome() {
 
 start_chrome2() {
   start_chrome_instance chrome2
-}
-
-start_chrome3() {
-  start_chrome_instance chrome3
 }
 
 start_playwright() {
@@ -537,7 +559,6 @@ start_skills_named() {
 }
 
 start_skills2() { start_skills_named skills2; }
-start_skills3() { start_skills_named skills3; }
 
 # Starts the shared server and all account-bound Skills tunnels atomically.
 start_skills() {
@@ -627,7 +648,6 @@ status_chrome_instance() {
 
 status_chrome() { status_chrome_instance chrome; }
 status_chrome2() { status_chrome_instance chrome2; }
-status_chrome3() { status_chrome_instance chrome3; }
 
 status_playwright() {
   local pid mode
@@ -669,7 +689,6 @@ status_skills() {
 show_status() {
   status_chrome
   status_chrome2
-  status_chrome3
   status_playwright
   status_skills
 }
@@ -690,20 +709,18 @@ start_all() {
   local chrome_status=$?
   start_chrome2
   local chrome2_status=$?
-  start_chrome3
-  local chrome3_status=$?
   start_playwright headless
   local playwright_status=$?
   start_skills
   local skills_status=$?
-  return $(( chrome_status || chrome2_status || chrome3_status || playwright_status || skills_status ))
+  return $(( chrome_status || chrome2_status || playwright_status || skills_status ))
 }
 
 start_target() {
   local target=$1 action
   action=${START_ACTIONS[$target]:-}
   [[ -n $action ]] || {
-    print -u2 -r -- "Usage: mcps [chrome|chrome2|chrome3|playwright|playwright-head|playwright-headless|skills|skills2|skills3|both|all|status|stop TARGET|restart TARGET|logs TARGET]"
+    print -u2 -r -- "Usage: mcps [chrome|chrome2|playwright|playwright-head|playwright-headless|skills|skills2|both|all|status|stop TARGET|restart TARGET|logs TARGET]"
     return 2
   }
   "$action"
@@ -713,7 +730,7 @@ stop_target() {
   local target=$1 kinds kind
   kinds=${STOP_KINDS[$target]:-}
   [[ -n $kinds ]] || {
-    print -u2 -r -- "Usage: mcps stop {chrome|chrome2|chrome3|playwright|skills|skills2|skills3|both|all}"
+    print -u2 -r -- "Usage: mcps stop {chrome|chrome2|playwright|skills|skills2|both|all}"
     return 2
   }
   for kind in ${(z)kinds}; do
@@ -725,7 +742,7 @@ restart_target() {
   local target=$1 stop_target_name
   stop_target_name=${RESTART_STOP_TARGETS[$target]:-}
   [[ -n $stop_target_name ]] || {
-    print -u2 -r -- "Usage: mcps restart {chrome|chrome2|chrome3|playwright|playwright-head|playwright-headless|skills|skills2|skills3|both|all}"
+    print -u2 -r -- "Usage: mcps restart {chrome|chrome2|playwright|playwright-head|playwright-headless|skills|skills2|both|all}"
     return 2
   }
   stop_target "$stop_target_name" && start_target "$target"
@@ -734,18 +751,18 @@ restart_target() {
 show_logs() {
   local kind=$1 file
   [[ -n ${LOG_TARGETS[$kind]:-} ]] || {
-    print -u2 -r -- "Usage: mcps logs {chrome|chrome2|chrome3|playwright|skills|skills2|skills3}"
+    print -u2 -r -- "Usage: mcps logs {chrome|chrome2|playwright|skills|skills2}"
     return 2
   }
   file=$(log_file "$kind")
   touch "$file"
   if [[ $kind == skills ]]; then
     touch "$(log_file skills-server)"
-    touch "$(log_file skills2)" "$(log_file skills3)"
+    touch "$(log_file skills2)"
     if [[ ${MCP_LAUNCHER_LOG_FOLLOW:-1} == 1 ]]; then
-      tail -n 50 -f "$(log_file skills-server)" "$file" "$(log_file skills2)" "$(log_file skills3)"
+      tail -n 50 -f "$(log_file skills-server)" "$file" "$(log_file skills2)"
     else
-      tail -n 50 "$(log_file skills-server)" "$file" "$(log_file skills2)" "$(log_file skills3)"
+      tail -n 50 "$(log_file skills-server)" "$file" "$(log_file skills2)"
     fi
   elif [[ ${MCP_LAUNCHER_LOG_FOLLOW:-1} == 1 ]]; then
     tail -n 50 -f "$file"
@@ -760,7 +777,7 @@ menu() {
     print -r -- "1) Start Chrome MCP"
     print -r -- "2) Start Playwright MCP (headed)"
     print -r -- "3) Start Playwright MCP (headless)"
-    print -r -- "4) Start both Chromes + headless Playwright + Skills"
+    print -r -- "4) Start Chromes + headless Playwright + Skills"
     print -r -- "5) Show status"
     print -r -- "6) Stop Chrome MCP"
     print -r -- "7) Stop Playwright MCP"
@@ -771,8 +788,6 @@ menu() {
     print -r -- "12) Restart Skills MCP"
     print -r -- "13) Start Chrome MCP 2"
     print -r -- "14) Stop Chrome MCP 2"
-    print -r -- "15) Start Chrome MCP 3"
-    print -r -- "16) Stop Chrome MCP 3"
     print -r -- "q) Quit"
     print -n -r -- "> "
     local choice
@@ -792,8 +807,6 @@ menu() {
       12) restart_target skills ;;
       13) start_target chrome2 ;;
       14) stop_kind chrome2 ;;
-      15) start_target chrome3 ;;
-      16) stop_kind chrome3 ;;
       q|Q) return 0 ;;
       *) print -u2 -r -- "Invalid choice." ;;
     esac
@@ -803,12 +816,10 @@ menu() {
 case "${0:t}" in
   mcp-chrome) start_target chrome ;;
   mcp-chrome2) start_target chrome2 ;;
-  mcp-chrome3) start_target chrome3 ;;
   mcp-playwright-head) start_target playwright-head ;;
   mcp-playwright-headless|mcp-playwright) start_target playwright-headless ;;
   mcp-skills) start_target skills ;;
   mcp-skills2) start_target skills2 ;;
-  mcp-skills3) start_target skills3 ;;
   *)
     case ${1:-} in
       "") menu ;;

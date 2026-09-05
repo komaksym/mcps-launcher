@@ -107,6 +107,27 @@ mcps all
           +--> skills-agent   tunnel -> :2092
 ```
 
+### Milestone — Per-organization Keychain routing
+
+The launcher resolves the runtime credential at the route boundary instead of
+copying one secret into every child environment:
+
+```text
+main + agent organization
+  └── CONTROL_PLANE_OPENAI_API_KEY
+      +--> Chrome current / Skills current
+      `--> Chrome agent / Skills agent
+
+second-subscription organization
+  └── CONTROL_PLANE_OPENAI_API_KEY_2
+      +--> Chrome 2 / Skills 2
+```
+
+Each route first accepts its explicit environment variable, then its
+route-specific Keychain service, then the legacy shared Keychain service. The
+agent route therefore needs no second secret while it remains in the main
+organization, and existing single-key installations keep working.
+
 ## Milestones
 
 1. Replace hardcoded Chrome-1/Chrome-2 dispatch with a validated instance

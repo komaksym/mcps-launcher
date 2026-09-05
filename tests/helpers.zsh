@@ -45,13 +45,11 @@ setup_sandbox() {
   ln -s "$TEST_ROOT/bin/mcps" "$TEST_SANDBOX/bin/mcps"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome2"
-  ln -s mcps "$TEST_SANDBOX/bin/mcp-chrome3"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright-head"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-playwright-headless"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-skills"
   ln -s mcps "$TEST_SANDBOX/bin/mcp-skills2"
-  ln -s mcps "$TEST_SANDBOX/bin/mcp-skills3"
 
   export MCP_LAUNCHER_STATE_DIR="$TEST_SANDBOX/state"
   export CHROME_MCP_INSTANCES_FILE="$TEST_ROOT/tests/chrome-instances.json"
@@ -81,12 +79,13 @@ setup_sandbox() {
   export FAKE_HEALTH_CODE=200
   export FAKE_TUNNEL_EXIT=0
   export FAKE_TUNNEL_HEALTH=1
-  export FAKE_KEYCHAIN_VALUE=ck
+  export FAKE_KEYCHAIN_VALUE=main-key
+  export FAKE_KEYCHAIN_VALUE_2=second-key
   export FAKE_NC_STATUS=0
   export FAKE_SKILLS_SERVER_EXIT=0
   local profile
   unset CONTROL_PLANE_API_KEY CONTROL_PLANE_API_KEY_2 CONTROL_PLANE_API_KEY_AGENT CONTROL_PLANE_API_KEY_ACCT2
-  for profile in chrome-browser-mcp chrome-browser-mcp-2 chrome-browser-mcp-3 playwright chatgpt-chat-skills-mcp chatgpt-chat-skills-mcp-2 chatgpt-chat-skills-mcp-3; do
+  for profile in chrome-browser-mcp chrome-browser-mcp-2 playwright chatgpt-chat-skills-mcp chatgpt-chat-skills-mcp-2; do
     touch "$TUNNEL_CLIENT_PROFILE_DIR/$profile.yaml"
   done
   mkdir -p "$FAKE_PROCESS_DIR" "$TEST_SANDBOX/skills/dist"

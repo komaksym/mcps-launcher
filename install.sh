@@ -9,13 +9,11 @@ readonly STAMP="$(date +%Y%m%d-%H%M%S)"
 readonly -a ALIASES=(
   mcp-chrome
   mcp-chrome2
-  mcp-chrome3
   mcp-playwright
   mcp-playwright-head
   mcp-playwright-headless
   mcp-skills
   mcp-skills2
-  mcp-skills3
 )
 
 [[ -f $SOURCE ]] || {

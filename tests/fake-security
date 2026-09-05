@@ -3,5 +3,23 @@
 set -u
 
 print -r -- "${(j: :)@}" >> "${FAKE_KEYCHAIN_LOG:?}"
-[[ -n ${FAKE_KEYCHAIN_VALUE:-} ]] || exit 1
-print -r -- "$FAKE_KEYCHAIN_VALUE"
+typeset service=""
+typeset -i i=1
+while (( i <= $# )); do
+  case ${@[i]} in
+    -s)
+      (( i++ ))
+      service=${@[i]}
+      ;;
+  esac
+  (( i++ ))
+done
+
+typeset value
+case $service in
+  CONTROL_PLANE_OPENAI_API_KEY_2) value=${FAKE_KEYCHAIN_VALUE_2:-} ;;
+  CONTROL_PLANE_OPENAI_API_KEY_AGENT) value=${FAKE_KEYCHAIN_VALUE_AGENT:-} ;;
+  *) value=${FAKE_KEYCHAIN_VALUE:-} ;;
+esac
+[[ -n $value ]] || exit 1
+print -r -- "$value"

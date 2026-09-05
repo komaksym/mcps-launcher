@@ -32,9 +32,9 @@ repository.
 - `tunnel-client` installed at `/usr/local/bin/tunnel-client`, or
   `TUNNEL_CLIENT_BIN` pointing to it
 - existing tunnel-client profiles named `chrome-browser-mcp`,
-  `chrome-browser-mcp-2`, `chrome-browser-mcp-3`, and `playwright`
-- dedicated tunnel-client profiles named `chatgpt-chat-skills-mcp`,
-  `chatgpt-chat-skills-mcp-2`, and `chatgpt-chat-skills-mcp-3`
+  `chrome-browser-mcp-2`, and `playwright`
+- dedicated tunnel-client profiles named `chatgpt-chat-skills-mcp` and
+  `chatgpt-chat-skills-mcp-2`
 - Node.js with `npx` available to tunnel-client
 - the Chrome Browser MCP extension/native bridge for Chrome commands
 - the installed Chrome topology at
@@ -45,13 +45,23 @@ repository.
 
 ### Control-plane API key
 
-The launcher reads one shared control-plane API key from the macOS Keychain
-when it starts a tunnel. This matches the existing single-profile setup and
-supports the profile references `CONTROL_PLANE_API_KEY`,
-`CONTROL_PLANE_API_KEY_2`, `CONTROL_PLANE_API_KEY_AGENT`, and the legacy
-`CONTROL_PLANE_API_KEY_ACCT2` name.
+The launcher resolves the runtime key per route from macOS Keychain. The
+default services are:
 
-Store or update the key once (the command prompts for the value):
+| Routes | Environment reference | Keychain service |
+| --- | --- | --- |
+| current Chrome/Skills | `CONTROL_PLANE_API_KEY` | `CONTROL_PLANE_OPENAI_API_KEY` |
+| second Chrome/Skills | `CONTROL_PLANE_API_KEY_2` | `CONTROL_PLANE_OPENAI_API_KEY_2` |
+
+The resolution order is an explicit route environment variable, then the
+route-specific Keychain service, then the existing shared Keychain service.
+This means a one-key installation keeps working, while a tunnel owned by a
+different organization can use its own runtime key. The Keychain service name
+is only a lookup label; the key itself must have Tunnels Read and Tunnels Use
+permission for the tunnel's owning organization.
+
+The existing main key remains in the established service (the command
+prompts for the value):
 
 ```zsh
 security add-generic-password -U \
@@ -60,12 +70,23 @@ security add-generic-password -U \
   -w
 ```
 
-No separate OpenAI tunnel token is needed for each profile. Each tunnel still
-needs its own unique tunnel ID, while all six routes can use this one API key.
-The launcher also accepts an already-exported alias and verifies that multiple
-aliases do not contain conflicting values. Override the Keychain lookup with
-`MCP_LAUNCHER_KEYCHAIN_SERVICE`, `MCP_LAUNCHER_KEYCHAIN_ACCOUNT`, or
-`MCP_LAUNCHER_SECURITY_BIN` when needed.
+For the second subscription, add the second account's runtime key under a
+different service. Never paste the value into this repository or shell history:
+
+```zsh
+security add-generic-password -U \
+  -a "$USER" \
+  -s "CONTROL_PLANE_OPENAI_API_KEY_2" \
+  -w
+```
+
+For compatibility with older local setups, the second route also accepts
+`CONTROL_PLANE_API_KEY_ACCT2` as a legacy environment-variable alias; prefer
+`CONTROL_PLANE_API_KEY_2` for new configuration.
+
+Override the service names with `MCP_LAUNCHER_KEYCHAIN_SERVICE` or
+`MCP_LAUNCHER_KEYCHAIN_SERVICE_2`; override the account or security binary
+with `MCP_LAUNCHER_KEYCHAIN_ACCOUNT` or `MCP_LAUNCHER_SECURITY_BIN`.
 
 ## Install
 
@@ -109,20 +130,17 @@ is allowed at a time.
 mcps                         # interactive menu; starts nothing by itself
 mcp-chrome                   # Chrome MCP (profile 1, :2091)
 mcp-chrome2                  # Chrome MCP 2 (profile 2, :2093)
-mcp-chrome3                  # Chrome MCP 3 (agent profile, :2095)
 mcp-playwright-head          # Playwright with a visible browser
 mcp-playwright-headless      # Playwright in the background
 mcp-playwright               # backward-compatible headless alias
-mcp-skills                   # Skills loopback server + tunnel
+mcp-skills                   # Skills loopback server + tunnels
 mcp-skills2                  # only the second Skills tunnel (shared server)
-mcp-skills3                  # only the agent Skills tunnel (shared server)
 mcps both                    # Chrome + headless Playwright (backward compatible)
-mcps all                     # all three Chrome tunnels + Playwright + Skills
+mcps all                     # both Chrome tunnels + Playwright + Skills
 
 mcps status
 mcps stop chrome
 mcps stop chrome2
-mcps stop chrome3
 mcps stop playwright
 mcps stop skills
 mcps stop both
@@ -130,7 +148,6 @@ mcps stop all
 
 mcps restart chrome
 mcps restart chrome2
-mcps restart chrome3
 mcps restart playwright-head
 mcps restart playwright-headless
 mcps restart skills
@@ -139,7 +156,6 @@ mcps restart all
 
 mcps logs chrome
 mcps logs chrome2
-mcps logs chrome3
 mcps logs playwright
 mcps logs skills
 ```
@@ -149,13 +165,11 @@ Status distinguishes the active Playwright mode:
 ```text
 Chrome MCP: stopped
 Chrome MCP 2: stopped
-Chrome MCP 3: stopped
 Playwright MCP: running (headed, PID 12345)
 Skills MCP server: running (PID 12346)
 Skills MCP (current): running (PID 12347)
 Skills MCP (new subscription): running (PID 12348)
-Skills MCP (agent): running (PID 12349)
-Skills MCP: running (server PID 12346, 3 tunnels)
+Skills MCP: running (server PID 12346, 2 tunnels)
 ```
 
 Chrome status checks both the tunnel process and its configured local bridge.
@@ -172,8 +186,8 @@ The launcher expects the Chrome Browser MCP extension/native bridge from its
 repository. Run its `npm run install:mac` after every checkout update so the
 native hosts and launcher topology file are current. Load exactly one matching
 extension flavor in each Chrome profile.
-The fixed bridge mapping is current `:2091`, subscription `:2093`, and agent
-`:2095`, each with its own tunnel profile:
+The fixed bridge mapping is current `:2091` and subscription `:2093`, each
+with its own tunnel profile:
 
 ```zsh
 tunnel-client init \
@@ -181,15 +195,9 @@ tunnel-client init \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2093/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
-
-tunnel-client init \
-  --profile chrome-browser-mcp-3 \
-  --tunnel-id '<agent-tunnel-id>' \
-  --mcp-server-url http://127.0.0.1:2095/mcp \
-  --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
 ```
 
-`mcps all` then starts all three Chrome tunnels together; the launcher checks
+`mcps all` then starts both Chrome tunnels together; the launcher checks
 each named profile before starting it. Set `CHROME_MCP_INSTANCES_FILE` only when
 the topology was installed somewhere other than the default path. Each Chrome
 profile must keep exactly one matching extension flavor enabled so tabs never
@@ -212,8 +220,8 @@ entry point. `SKILLS_MCP_NODE_BIN` can select a specific Node.js executable,
 and `SKILLS_MCP_PORT` overrides the loopback port `2092`.
 
 Create the dedicated machine-local profile with the tunnel ID from the OpenAI
-tunnel settings. Keep the runtime API key in your local environment; do not put
-it in this repository or shell history.
+tunnel settings. Use the Keychain services documented above for the runtime
+keys; do not put key material in this repository or shell history.
 
 ```zsh
 tunnel-client init \
@@ -227,27 +235,24 @@ tunnel-client init \
   --tunnel-id '<second-tunnel-id>' \
   --mcp-server-url http://127.0.0.1:2092/mcp \
   --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_2
-
-tunnel-client init \
-  --profile chatgpt-chat-skills-mcp-3 \
-  --tunnel-id '<agent-tunnel-id>' \
-  --mcp-server-url http://127.0.0.1:2092/mcp \
-  --control-plane-api-key-ref env:CONTROL_PLANE_API_KEY_AGENT
 ```
 
-All three clients use the same stateless Skills service on `:2092`; only the
+Both clients use the same stateless Skills service on `:2092`; only the
 tunnel identity and runtime-key reference differ. The launcher supplies the
 loopback MCP URL at runtime and removes an ambient `CONTROL_PLANE_TUNNEL_ID`
 override, so each selected profile remains the source of tunnel identity. It
 never prints profile contents or credentials.
+
+If a named profile already exists, add `--force` only when intentionally
+replacing that profile's tunnel ID or target URL.
 
 ## Runtime files
 
 The launcher stores operator state under
 `$HOME/.local/state/mcp-launcher/`:
 
-- `chrome.pid`, `chrome2.pid`, `chrome3.pid`, `playwright.pid`,
-  `skills.pid`, `skills2.pid`, `skills3.pid`, and `skills-server.pid`
+- `chrome.pid`, `chrome2.pid`, `playwright.pid`,
+  `skills.pid`, `skills2.pid`, and `skills-server.pid`
 - matching per-process `.log` and health URL files
 - `playwright.mode`
 
@@ -264,7 +269,7 @@ zsh scripts/check.zsh
 ```
 
 This checks zsh syntax, launcher lifecycle, mode switching, duplicate
-prevention, topology-file loading, three Chrome routes, three Skills routes, installer
+prevention, topology-file loading, two Chrome routes, two Skills routes, installer
 backups/idempotency, repository hygiene, and whitespace errors.
 
 ## Troubleshooting
@@ -282,7 +287,7 @@ The installer deliberately does not edit shell configuration.
 ### Chrome MCP is not ready
 
 Open Google Chrome and enable the matching Chrome Browser MCP extension. The
-local bridge must listen on `127.0.0.1:2091`, `:2093`, or `:2095` before its
+local bridge must listen on `127.0.0.1:2091` or `:2093` before its
 tunnel starts. If a profile is missing, create it with the exact instance
 mapping above; do not repoint a profile to another port.
 
@@ -296,10 +301,11 @@ mcps logs playwright
 tunnel-client doctor --profile playwright --explain
 ```
 
-The launcher removes only `CONTROL_PLANE_TUNNEL_ID` from the child environment
-so an ambient override cannot replace the tunnel ID stored in the selected
-profile. It resolves the shared API key immediately before each tunnel child
-starts and never prints configuration values or credentials.
+The launcher removes tunnel and API-key environment overrides that could cross
+route boundaries from the child environment, so an ambient override cannot
+replace the selected profile or credential. It resolves the selected route's
+Keychain key immediately before each tunnel child starts and never prints
+configuration values or credentials.
 
 ### Spotify asks for login again
 
